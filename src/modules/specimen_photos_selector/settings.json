@@ -1,0 +1,7 @@
+{
+  "title": "Specimen Photos Selector",
+  "icon": "mdi-image",
+  "dataSources": ["field_notes", "specimens_photos_folder"],
+  "settings": {
+    "tagLetter": "s"}
+}

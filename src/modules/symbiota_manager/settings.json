@@ -1,0 +1,10 @@
+{
+  "title": "Symbiota Manager",
+  "icon": "mdi-database-sync",
+  "dataSources": ["symbiota"],
+  "settings": {
+    "specimenLink": "https://symbiota.pvnh.net/collections/individual/index.php?occid={occid}&clid=0",
+    "specimenEditor": "https://symbiota.pvnh.net/collections/editor/occurrenceeditor.php?occid={occid}",
+    "apiEndpoint": "https://symbiota.pvnh.net/symbiota_api.php?endpoint="
+  }
+}

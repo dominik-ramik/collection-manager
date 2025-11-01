@@ -1,0 +1,7 @@
+{
+  "title": "Specimens Photos Folder",
+  "icon": "mdi-folder",
+  "settings": {
+    "match_folder": "^[^/]+/(?<initials>[A-Z]{2,3})_(?<number>[1-9]\\d*)(?<accletter>[A-Z])?_(?<author>[a-zA-Z]{2,3})(?:$|[^a-zA-Z][^/]*)$"
+  }
+}

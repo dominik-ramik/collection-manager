@@ -1,0 +1,10 @@
+{
+  "title": "Symbiota",
+  "icon": "mdi-database",
+  "settings": {
+    "apiEndpoint": "https://symbiota.pvnh.net/symbiota_api.php?endpoint=",
+    "host": "localhost",
+    "port": 3306,
+    "database": "pvnhnet_symbiota_upgraded"
+  }
+}

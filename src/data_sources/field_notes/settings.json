@@ -1,0 +1,27 @@
+{
+  "title": "Field Notes",
+  "icon": "mdi-file-excel",
+  "settings": {
+    "sheetName": "Collections",
+    "dataPostprocessor": "fieldNotePostprocess",
+    "data": {
+      "taxonomy": {
+        "group": "Mj Gp",
+        "family": "Family",
+        "genus": "Genus",
+        "species": "",
+        "speciesEpithet": "Sp. Epithet",
+        "species_authority": "Authority",
+        "subspecies": "",
+        "subspeciesEpithet": "Subsp. epith.",
+        "subspecies_authority": "Subsp. auth."
+      },
+      "specimenNumber": {
+        "name": "Collector",
+        "number": "Coll#",
+        "accletter": "Accletter"
+      },
+      "pvnh_barcode": "PVNH Barcode"
+    }
+  }
+}

@@ -1,0 +1,20 @@
+{
+  "title": "Checklist",
+  "icon": "mdi-format-list-checks",
+  "sheetName": "Checklist",
+  "settings": {
+    "sheetName": "Vascular Plants",
+    "dataPostprocessor": "",
+    "data": {
+      "taxonomy": {
+        "group": "MajorGroup",
+        "family": "Family",
+        "genus": "Genus",
+        "species": "Species.name",
+        "species_authority": "species.authority",
+        "subspecies": "subspecies.name",
+        "subspecies_authority": "subspecies.authority"
+      }
+    }
+  }
+}

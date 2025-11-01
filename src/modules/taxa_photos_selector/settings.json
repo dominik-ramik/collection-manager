@@ -1,0 +1,8 @@
+{
+  "title": "Taxa Photos Selector",
+  "icon": "mdi-image-multiple",
+  "dataSources": ["checklist", "field_notes", "specimens_photos_folder"],
+  "settings": {
+    "tagLetter": "t"
+  }
+}

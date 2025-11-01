@@ -1,0 +1,6 @@
+{
+  "title": "Collection Healthcheck",
+  "icon": "mdi-heart-pulse",
+  "dataSources": ["checklist"],
+  "settings": {}
+}
