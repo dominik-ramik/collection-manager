@@ -67,6 +67,8 @@ function onFileChange(event) {
       sheetData.value = result
       appStore.fieldNotesData = result
       appStore.ready.dataSources['field_notes'] = true
+      
+      console.log('Field Notes loaded:', result)
     } catch (err) {
       error.value = 'Failed to read sheet: ' + err.message
       fileName.value = ''

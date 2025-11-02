@@ -19,6 +19,9 @@ export const useAppStore = defineStore('app', {
     folderHandle: null,
     fieldNotesData: null,
     symbiotaCollectionData: null,
+    checklistData: null, // Add checklist data
+    specimensPhotosFolderResult: null,
+    modulesObj: {}, // Add for storing loaded module objects
   }),
   actions: {
     setModules (mods) {

@@ -147,6 +147,19 @@ export function useSpecimenPhotos() {
     }
   }
 
+  // Public: refresh counts for both matched and unmatched folders (used on module switch)
+  async function refreshTagCounts() {
+    const allFolders = [...(matchedFolders.value || []), ...(unmatchedFolders.value || [])].filter(f => f.hasImages)
+    tagCounts.value = {}
+    await computeAllTagCounts(allFolders)
+  }
+
+  // Public: refresh currently displayed thumbnails for the selected folder (used on module switch)
+  async function refreshSelectedFolderImages() {
+    if (!selectedFolder.value) return
+    await selectFolder(selectedFolder.value)
+  }
+
   return {
     selectedType,
     sortedFolders,
@@ -163,6 +176,8 @@ export function useSpecimenPhotos() {
     folderKeyOf,
     matchedFolders,
     unmatchedFolders,
+    refreshTagCounts,
+    refreshSelectedFolderImages, // expose
   }
 }
 

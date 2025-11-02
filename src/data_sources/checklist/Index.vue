@@ -71,7 +71,9 @@ function onFileChange(event) {
       sheetData.value = result
       appStore.checklistData = result
       appStore.ready.dataSources['checklist'] = true
-      console.log('Checklist data:', result)
+      
+      console.log('Checklist loaded:', result)
+      console.log('[Checklist] Sample taxa:', result.slice(0, 3))
     } catch (err) {
       error.value = 'Failed to read sheet: ' + err.message
       fileName.value = ''

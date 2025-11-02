@@ -141,6 +141,7 @@ async function pickFolder() {
           .filter(folder => folder.hasImages)
       )
       appStore.specimensPhotosFolderResult = result
+      console.log("Folders", result)
       appStore.ready.dataSources['specimens_photos_folder'] = true
       emit('ready')
     } else {

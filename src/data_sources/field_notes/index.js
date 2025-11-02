@@ -19,18 +19,26 @@ export function fieldNotePostprocess(row) {
   const name = row?.specimenNumber?.name
   if (name && collectorShortNames[name]) {
     row.specimenNumber.initials = collectorShortNames[name]
-    
-    // group
-    if (row.taxonomy.group && row.taxonomy.group.includes('-')) {
+
+    if (row.taxonomy?.group && row.taxonomy.group.includes('-')) {
       row.taxonomy.group = row.taxonomy.group.split('-').slice(1).join('-').trim()
     }
-    
-    if(row.taxonomy.speciesEpiteth && row.taxonomy.genus){
-      row.taxonomy.species = `${row.taxonomy.genus} ${row.taxonomy.speciesEpiteth}`
+
+    const genusName = row.taxonomy?.genus || ''
+    const speciesEpithet = row.taxonomy?.speciesEpithet || ''
+    const subspeciesEpithet = row.taxonomy?.subspeciesEpithet || ''
+
+    if (speciesEpithet && genusName) {
+      row.taxonomy.species = `${genusName} ${speciesEpithet}`.trim()
     }
-    if(row.taxonomy.subspeciesEpiteth && row.taxonomy.speciesEpiteth && row.taxonomy.genus){
-      row.taxonomy.subspecies = `${row.taxonomy.genus} ${row.taxonomy.speciesEpiteth} ${row.taxonomy.subspeciesEpitethspeciesEpiteth}`
+
+    if (subspeciesEpithet && speciesEpithet && genusName) {
+      row.taxonomy.subspecies = `${genusName} ${speciesEpithet} ${subspeciesEpithet}`.trim()
     }
+
+    delete row.taxonomy.speciesEpithet
+    delete row.taxonomy.subspeciesEpithet
+
   } else {
     row.hasError = "Unknown collector"
   }

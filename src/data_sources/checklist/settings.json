@@ -1,7 +1,6 @@
 {
   "title": "Checklist",
   "icon": "mdi-format-list-checks",
-  "sheetName": "Checklist",
   "settings": {
     "sheetName": "Vascular Plants",
     "dataPostprocessor": "",

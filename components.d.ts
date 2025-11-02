@@ -15,5 +15,6 @@ declare module 'vue' {
     FolderThumbnailGrid: typeof import('./src/components/FolderThumbnailGrid.vue')['default']
     RouterLink: typeof import('vue-router')['RouterLink']
     RouterView: typeof import('vue-router')['RouterView']
+    ThumbnailGrid: typeof import('./src/components/PhotoSelector/ThumbnailGrid.vue')['default']
   }
 }

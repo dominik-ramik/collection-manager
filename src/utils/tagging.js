@@ -180,3 +180,91 @@ export function countTaggedFiles(files, tagLetter) {
   }
   return count
 }
+
+/**
+ * Check if file has both specified tags
+ */
+export function hasBothTags(filename, tag1, tag2) {
+  return hasTag(filename, tag1) && hasTag(filename, tag2)
+}
+
+/**
+ * Remove specific tag from filename
+ */
+export function removeTag(filename, tagLetter) {
+  const parsed = parseFilename(filename)
+  if (!parsed.tag) return filename
+  
+  const newTag = parsed.tag.split('').filter(t => t !== tagLetter).join('')
+  parsed.tag = newTag
+  
+  return composeFilename(parsed)
+}
+
+/**
+ * Add tag to filename if not present
+ */
+export function addTag(filename, tagLetter) {
+  if (hasTag(filename, tagLetter)) return filename
+  
+  const parsed = parseFilename(filename)
+  const tagArr = (parsed.tag || '').split('').filter(Boolean)
+  tagArr.push(tagLetter)
+  parsed.tag = [...new Set(tagArr)].sort().join('')
+  
+  return composeFilename(parsed)
+}
+
+/**
+ * Ensure edit file has same tag as original
+ */
+export async function propagateTagToEdit(folderHandle, originalName, tagLetter) {
+  const parsed = parseFilename(originalName)
+  const editName = `${parsed.base} edit${parsed.ext}`
+  
+  try {
+    // Check if edit file exists
+    const entries = []
+    for await (const entry of folderHandle.values()) {
+      if (entry.kind === 'file') {
+        entries.push(entry)
+      }
+    }
+    
+    const editEntry = entries.find(e => {
+      const p = parseFilename(e.name)
+      return p.base === parsed.base && p.edit && p.ext === parsed.ext
+    })
+    
+    if (!editEntry) return // Edit file doesn't exist
+    
+    const hasTagInOriginal = hasTag(originalName, tagLetter)
+    const hasTagInEdit = hasTag(editEntry.name, tagLetter)
+    
+    if (hasTagInOriginal && !hasTagInEdit) {
+      // Add tag to edit
+      const newEditName = addTag(editEntry.name, tagLetter)
+      const editFile = await editEntry.getFile()
+      const newHandle = await folderHandle.getFileHandle(newEditName, { create: true })
+      const writable = await newHandle.createWritable()
+      await writable.write(await editFile.arrayBuffer())
+      await writable.close()
+      if (editEntry.name !== newEditName) {
+        await folderHandle.removeEntry(editEntry.name)
+      }
+    } else if (!hasTagInOriginal && hasTagInEdit) {
+      // Remove tag from edit
+      const newEditName = removeTag(editEntry.name, tagLetter)
+      const editFile = await editEntry.getFile()
+      const newHandle = await folderHandle.getFileHandle(newEditName, { create: true })
+      const writable = await newHandle.createWritable()
+      await writable.write(await editFile.arrayBuffer())
+      await writable.close()
+      if (editEntry.name !== newEditName) {
+        await folderHandle.removeEntry(editEntry.name)
+      }
+    }
+  } catch (e) {
+    console.error('Failed to propagate tag to edit file:', e)
+  }
+}

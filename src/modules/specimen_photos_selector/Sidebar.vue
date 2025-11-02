@@ -45,7 +45,7 @@
   </div>
 </template>
 <script setup>
-import { computed } from 'vue'
+import { computed, onActivated, onMounted } from 'vue'
 import { specimenPhotosStore } from './specimenPhotosStore'
 
 const {
@@ -56,6 +56,7 @@ const {
   selectFolder,
   onTypeChange,
   folderKeyOf,
+  refreshTagCounts,
 } = specimenPhotosStore
 
 const typeOptions = [
@@ -121,4 +122,7 @@ function onListItemKeydown(event, idx) {
     selectFolder(safeSortedFolders.value[idx])
   }
 }
+
+onMounted(() => { refreshTagCounts() })
+onActivated(() => { refreshTagCounts() })
 </script>
