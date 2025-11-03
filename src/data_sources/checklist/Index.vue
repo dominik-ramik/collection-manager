@@ -1,41 +1,18 @@
 <template>
   <v-container>
-    <!-- Cached notice and actions -->
-    <v-alert
-      v-if="usingCache"
-      type="success"
-      variant="tonal"
-      class="mb-3"
-    >
-      Using cached Checklist data from previous session
-      <span v-if="fileName"> ({{ fileName }})</span>.
-      <v-btn
-        class="ml-3"
-        color="primary"
-        size="small"
-        variant="flat"
-        @click="repick"
-      >
-        Pick different file
-      </v-btn>
-    </v-alert>
-
-    <p>Select an Excel (.xlsx) file containing the checklist.</p>
-    <v-file-input
-      label="Pick XLSX file"
-      accept=".xlsx"
-      :disabled="!!fileName && usingCache"
+    <ExcelSourceLoader
+      :using-cache="usingCache"
+      :file-name="fileName"
       :loading="loading"
-      show-size
-      @change="e => onFileChange(e, appStore)"
+      :disabled="!!fileName && usingCache"
+      :error="error"
+      select-help-text="Select an Excel (.xlsx) file containing the checklist."
+      pick-label="Pick XLSX file"
+      loaded-prefix="Loaded file:"
+      :repick="repick"
+      :on-file-change="handleFileChange"
+      :cache-timestamp="cacheMeta?.timestamp"
     />
-    <div v-if="fileName && !usingCache" class="mt-4">
-      <v-icon color="success" class="mr-2">mdi-check-circle</v-icon>
-      <span>Loaded file: <strong>{{ fileName }}</strong></span>
-    </div>
-    <div v-if="error" class="mt-4">
-      <v-alert type="error">{{ error }}</v-alert>
-    </div>
   </v-container>
 </template>
 
@@ -44,6 +21,7 @@ import { onMounted } from 'vue'
 import { useAppStore } from '@/stores/app'
 import settings from './settings.json'
 import { useSheetCache } from '@/composables/useSheetCache'
+import ExcelSourceLoader from '@/components/ExcelSourceLoader.vue'
 
 const appStore = useAppStore()
 
@@ -55,6 +33,7 @@ const {
   repick,
   onFileChange,
   init,
+  cacheMeta,
 } = useSheetCache({
   sourceName: 'checklist',
   storeField: 'checklistData',
@@ -65,6 +44,10 @@ const {
     return name && typeof mod[name] === 'function' ? mod[name] : null
   }
 })
+
+function handleFileChange(e) {
+  onFileChange(e, appStore)
+}
 
 onMounted(() => { init(appStore) })
 </script>

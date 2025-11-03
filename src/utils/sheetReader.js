@@ -12,6 +12,12 @@ export default {
     
     for (let i = 1; i < rows.length; i++) {
       const row = rows[i]
+
+      // Skip completely empty rows
+      if (Array.isArray(row) && row.every(c => String(c ?? '').trim() === '')) {
+        continue
+      }
+
       const obj = {}
       
       for (const key in mapping) {

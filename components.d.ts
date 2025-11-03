@@ -12,6 +12,7 @@ export {}
 declare module 'vue' {
   export interface GlobalComponents {
     DataSourcesButton: typeof import('./src/components/DataSourcesButton.vue')['default']
+    ExcelSourceLoader: typeof import('./src/components/ExcelSourceLoader.vue')['default']
     RouterLink: typeof import('vue-router')['RouterLink']
     RouterView: typeof import('vue-router')['RouterView']
     ThumbnailGrid: typeof import('./src/components/PhotoSelector/ThumbnailGrid.vue')['default']

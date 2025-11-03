@@ -1,22 +1,5 @@
 <template>
   <div>
-    <v-alert
-      :type="problemsCount > 0 ? 'warning' : 'success'"
-      variant="tonal"
-      class="mb-4"
-    >
-      <div class="d-flex align-center flex-wrap" style="gap:12px;">
-        <div><strong>Records</strong> {{ totalRows }}</div>
-        <v-divider vertical />
-        <div>
-          <strong>Problems</strong> {{ problemsCount }}
-          <span style="color:#666;">
-            (Duplicates: {{ duplicateGroups.length }}, Missing fields: {{ missingRequired.length }}, Unknown collectors: {{ unknownCollectors.length }}, Conflicting taxonomy: {{ conflicts.length }})
-          </span>
-        </div>
-      </div>
-    </v-alert>
-
     <v-expansion-panels multiple>
       <v-expansion-panel>
         <v-expansion-panel-title>
@@ -135,6 +118,58 @@
           />
         </v-expansion-panel-text>
       </v-expansion-panel>
+
+      <!-- Field Notes not in checklist -->
+      <v-expansion-panel>
+        <v-expansion-panel-title>
+          <span :style="{ color: fnNotInChecklist.length > 0 ? '#d32f2f' : 'inherit' }">
+            Field Notes not in checklist ({{ fnNotInChecklist.length }})
+          </span>
+        </v-expansion-panel-title>
+        <v-expansion-panel-text>
+          <div class="text-medium-emphasis mb-2">
+            Rows from Field Notes that do not match any taxon (group/family/genus/species/subspecies) in the Checklist.
+          </div>
+          <HcDataTable
+            v-if="fnNotInChecklist.length"
+            :headers="fnHeaders"
+            :items="fnNotInChecklist.map(r => ({
+              row: getRowIndex(r),
+              collector: r?.specimenNumber?.name || '',
+              number: String(r?.specimenNumber?.number ?? ''),
+              taxonomy: formatTaxonomy(r?.taxonomy || null),
+            }))"
+            :items-per-page="10"
+          />
+          <div v-else class="text-medium-emphasis">All Field Notes entries match the checklist.</div>
+        </v-expansion-panel-text>
+      </v-expansion-panel>
+
+      <!-- Field Notes: whitespace-only taxa (trim-fixable) -->
+      <v-expansion-panel>
+        <v-expansion-panel-title>
+          <span :style="{ color: fnTrimFixable.length > 0 ? '#d32f2f' : 'inherit' }">
+            Field Notes: whitespace-only taxa ({{ fnTrimFixable.length }})
+          </span>
+        </v-expansion-panel-title>
+        <v-expansion-panel-text>
+          <div class="text-medium-emphasis mb-2">
+            Rows that fail strict matching but would match the checklist after trimming spaces around names.
+          </div>
+          <HcDataTable
+            v-if="fnTrimFixable.length"
+            :headers="fnHeaders"
+            :items="fnTrimFixable.map(r => ({
+              row: getRowIndex(r),
+              collector: r?.specimenNumber?.name || '',
+              number: String(r?.specimenNumber?.number ?? ''),
+              taxonomy: formatTaxonomy(r?.taxonomy || null),
+            }))"
+            :items-per-page="10"
+          />
+          <div v-else class="text-medium-emphasis">No whitespace-only issues in Field Notes.</div>
+        </v-expansion-panel-text>
+      </v-expansion-panel>
     </v-expansion-panels>
   </div>
 </template>
@@ -147,26 +182,64 @@ import HcDataTable from '../../components/HcDataTable.vue'
 
 const emit = defineEmits(['update:problems', 'unit-progress', 'unit-done'])
 const appStore = useAppStore()
-
-function norm(v) { return String(v ?? '').trim() }
-function keyFromRow(row) {
-  const sn = row?.specimenNumber || {}
-  const initials = norm(sn.initials).toUpperCase()
-  const number = norm(sn.number)
-  const acc = norm(sn.accletter).toUpperCase()
-  return `${initials}|${number}|${acc}`
-}
-function keyLabelFromRow(row) {
-  const sn = row?.specimenNumber || {}
-  return `${norm(sn.initials)}-${norm(sn.number)}${norm(sn.accletter)}`
-}
-function formatSpecimenRow(row) {
-  const sn = row?.specimenNumber || {}
-  const name = sn.name || '(unknown collector)'
-  return `${name} • ${keyLabelFromRow(row)}`
-}
-
 const rows = computed(() => appStore.fieldNotesData || [])
+const checklist = computed(() => appStore.checklistData || [])
+
+// New: helpers and indexes for FN vs Checklist matching
+const normStr = (v) => String(v ?? '')
+const lc = (v) => normStr(v).trim().toLowerCase()
+const lcRaw = (v) => normStr(v).toLowerCase()
+
+const clIdx = {
+  trim: {
+    groups: new Set(),
+    families: new Set(),
+    genera: new Set(),
+    species: new Set(),
+    subspecies: new Set(),
+  },
+  raw: {
+    groups: new Set(),
+    families: new Set(),
+    genera: new Set(),
+    species: new Set(),
+    subspecies: new Set(),
+  },
+}
+
+function buildChecklistIdx() {
+  clIdx.trim.groups.clear(); clIdx.trim.families.clear(); clIdx.trim.genera.clear(); clIdx.trim.species.clear(); clIdx.trim.subspecies.clear()
+  clIdx.raw.groups.clear(); clIdx.raw.families.clear(); clIdx.raw.genera.clear(); clIdx.raw.species.clear(); clIdx.raw.subspecies.clear()
+
+  for (const rec of (checklist.value || [])) {
+    const t = rec?.taxonomy || rec || {}
+    const gRaw = normStr(t.group), fRaw = normStr(t.family), geRaw = normStr(t.genus), spRaw = normStr(t.species), sspRaw = normStr(t.subspecies)
+    const g = lc(gRaw), f = lc(fRaw), ge = lc(geRaw), sp = lc(spRaw), ssp = lc(sspRaw)
+    if (g) clIdx.trim.groups.add(g)
+    if (f) clIdx.trim.families.add(f)
+    if (ge) clIdx.trim.genera.add(ge)
+    if (sp) clIdx.trim.species.add(sp)
+    if (ssp) clIdx.trim.subspecies.add(ssp)
+    if (gRaw) clIdx.raw.groups.add(lcRaw(gRaw))
+    if (fRaw) clIdx.raw.families.add(lcRaw(fRaw))
+    if (geRaw) clIdx.raw.genera.add(lcRaw(geRaw))
+    if (spRaw) clIdx.raw.species.add(lcRaw(spRaw))
+    if (sspRaw) clIdx.raw.subspecies.add(lcRaw(sspRaw))
+  }
+}
+
+function fnMatchesChecklist(tax, mode = 'trim') {
+  if (!tax) return false
+  const g = mode === 'trim' ? lc(tax.group) : lcRaw(tax.group)
+  const f = mode === 'trim' ? lc(tax.family) : lcRaw(tax.family)
+  const ge = mode === 'trim' ? lc(tax.genus) : lcRaw(tax.genus)
+  const sp = mode === 'trim' ? lc(tax.species) : lcRaw(tax.species)
+  const ssp = mode === 'trim' ? lc(tax.subspecies) : lcRaw(tax.subspecies)
+  const idx = clIdx[mode]
+  return (ssp && idx.subspecies.has(ssp)) || (sp && idx.species.has(sp)) || (ge && idx.genera.has(ge)) || (f && idx.families.has(f)) || (g && idx.groups.has(g)) || false
+}
+
+// Existing state
 const totalRows = computed(() => (rows.value || []).length)
 
 const duplicateGroups = ref([])         // [{ key, label, items: [row,...] }]
@@ -175,11 +248,37 @@ const missingRequired = ref([])         // rows
 const unknownCollectors = ref([])       // rows
 const problemsCount = ref(0)
 
+// New state
+const fnNotInChecklist = ref([])
+const fnTrimFixable = ref([])
+
+// helper to normalize string inputs used across checks
+const norm = (v) => String(v ?? '').trim()
+
+// Problems are the sum of issue panel counts
+const panelTotal = computed(() =>
+  duplicateGroups.value.length +
+  missingRequired.value.length +
+  unknownCollectors.value.length +
+  conflicts.value.length +
+  fnNotInChecklist.value.length +
+  fnTrimFixable.value.length
+)
+
+// Keep Problems equal to panel totals and emit
+watch(panelTotal, (n) => {
+  problemsCount.value = n
+  emit('update:problems', problemsCount.value)
+}, { immediate: true })
+
+// Extend recompute to include FN vs Checklist checks
 function recompute() {
   duplicateGroups.value = []
   conflicts.value = []
   missingRequired.value = []
   unknownCollectors.value = []
+  fnNotInChecklist.value = []
+  fnTrimFixable.value = []
   problemsCount.value = 0
 
   const mapByKey = new Map()
@@ -238,13 +337,18 @@ function recompute() {
     }
   }
 
-  problemsCount.value =
-    duplicateGroups.value.length +
-    missingRequired.value.length +
-    unknownCollectors.value.length +
-    conflicts.value.length
+  // Build checklist indexes and compute FN vs Checklist
+  buildChecklistIdx()
+  for (const row of (rows.value || [])) {
+    const tax = row?.taxonomy || {}
+    const matchTrim = fnMatchesChecklist(tax, 'trim')
+    const matchRaw = fnMatchesChecklist(tax, 'raw')
+    if (!matchTrim) fnNotInChecklist.value.push(row)
+    else if (!matchRaw) fnTrimFixable.value.push(row)
+  }
 
-  emit('update:problems', problemsCount.value)
+  // problemsCount.value = panelTotal.value // handled by watcher
+  emit('update:problems', panelTotal.value)
 }
 
 watch(rows, recompute, { deep: true, immediate: true })
@@ -262,6 +366,19 @@ function getRowIndex(row) {
   const arr = rows.value || []
   const idx = arr.indexOf(row)
   return idx >= 0 ? (idx + 1) : ''
+}
+
+// New helpers for FN key building (INITIALS|NUMBER|ACCLETTER) and display label
+function keyFromRow(row) {
+  const sn = row?.specimenNumber || {}
+  const i = norm(sn.initials).toUpperCase()
+  const n = norm(sn.number)
+  const a = norm(sn.accletter).toUpperCase()
+  return `${i}|${n}|${a}`
+}
+function keyLabelFromRow(row) {
+  const sn = row?.specimenNumber || {}
+  return `${norm(sn.initials)}-${norm(sn.number)}${norm(sn.accletter)}`
 }
 
 // Table headers
@@ -289,4 +406,12 @@ const mrHeaders = [
 // Fix header key
 mrHeaders[4].value = 'accletter'
 const unkHeaders = [...mrHeaders]
+
+// New headers for FN tables
+const fnHeaders = [
+  { title: 'Row', value: 'row' },
+  { title: 'Collector', value: 'collector' },
+  { title: 'Collection #', value: 'number' },
+  { title: 'Taxonomy', value: 'taxonomy' },
+]
 </script>

@@ -3,7 +3,7 @@
     <v-btn
       color="primary"
       variant="text"
-      style="background:#fff; color:#43a047; font-weight:600;"
+      style="background:#fff; color:#43a047;"
       @click="onExportClick"
     >
       Export specimen photos

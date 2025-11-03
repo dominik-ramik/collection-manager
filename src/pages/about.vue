@@ -52,7 +52,7 @@
 .about-card-title {
   font-size: 1.25em;
   font-weight: 600;
-  color: #3949ab;
+  color: var(--v-theme-secondary);
   letter-spacing: 0.2px;
   padding-bottom: 0.2em;
 }
@@ -63,7 +63,7 @@
   margin-bottom: 1.1em;
 }
 .about-link {
-  color: #3949ab;
+  color: var(--v-theme-secondary);
   text-decoration: underline;
   font-weight: 500;
 }

@@ -212,7 +212,7 @@
 <script setup>
 import { computed, ref, watch, nextTick } from 'vue'
 import { useAppStore } from '@/stores/app'
-import MatchingRecordsTable from './MatchingRecordsTable.vue'
+import MatchingRecordsTable from '@/data_sources/symbiota/MatchingRecordsTable.vue'
 import settings from './settings.json'
 import { getDbConfig } from './dbConfig'
 

@@ -1,25 +1,17 @@
 <template>
   <v-app>
-    <!-- Static app bar, does NOT overlay content -->
-    <v-app-bar color="green-darken-3" :image="leavesImage" elevation="2" height="64" style="position:static;">
-      <template v-slot:image>
-        <v-img
-          :src="leavesImage"
-          gradient="to top right, rgba(27,94,32,.8), rgba(128,208,199,.8)"
-        ></v-img>
-      </template>
+    <!-- Gradient app bar; keeps Material proportions and Vuetify structure -->
+    <v-app-bar class="appbar-gradient" elevation="2" height="64" style="position:static;">
       <v-app-bar-nav-icon @click="drawer = !drawer" />
       <v-toolbar-title>
         Collection Manager<span v-if="currentModuleTitle"> / {{ currentModuleTitle }}</span>
       </v-toolbar-title>
       <div style="flex:1"></div>
-      <!-- Render module appBar component if present, with white background -->
+      <!-- Render module appBar component if present -->
       <div v-if="currentModuleObj?.appBar" style="margin-right: 0.5em; margin-left:auto; display:flex; align-items:center; height:100%;">
-        <component
-          :is="currentModuleObj.appBar"
-        />
+        <component :is="currentModuleObj.appBar" />
       </div>
-      <!-- New: always show Data Sources button last when a module is shown -->
+      <!-- Always show Data Sources button last when a module is shown -->
       <div v-if="currentModuleObj" style="margin-right: 0.5em; display:flex; align-items:center; height:100%;">
         <DataSourcesButton />
       </div>
@@ -88,7 +80,6 @@
 import { ref, watch, computed } from 'vue'
 import { useAppStore } from '@/stores/app'
 import { useRoute } from 'vue-router'
-import leavesImage from '@/assets/leaves.jpg'
 import DataSourcesButton from '@/components/DataSourcesButton.vue'
 const $route = useRoute()
 const appStore = useAppStore()
@@ -169,6 +160,12 @@ function closeError () {
 </script>
 
 <style>
+/* Full-width gradient for app bar; ensures legible white foreground */
+.appbar-gradient {
+  /* muted teal → soft indigo */
+  background: linear-gradient(90deg, #2D6A7E 0%, #6B72AE 100%) !important;
+  color: #fff !important;
+}
 .v-application--wrap {
   min-height: 100vh !important;
 }

@@ -8,21 +8,25 @@
 import { createVuetify } from 'vuetify'
 // Styles
 import '@mdi/font/css/materialdesignicons.css'
-
 import 'vuetify/styles'
 
-// https://vuetifyjs.com/en/introduction/why-vuetify/#feature-guides
 export default createVuetify({
   theme: {
-    defaultTheme: 'collectionGreen',
+    defaultTheme: 'lagoon',
     themes: {
-      collectionGreen: {
+      lagoon: {
         dark: false,
         colors: {
-          primary: '#43a047', // green-600, softer material green
-          secondary: '#3949ab',
-          accent: '#5c6bc0',
-          // Remove background color so it defaults to white
+          // Muted teal → indigo palette for calmer, readable UI
+          primary: '#2D6A7E',    // muted teal
+          secondary: '#6B72AE',  // soft indigo
+          accent: '#8BAE8C',     // sage accent for highlights
+          surface: '#F7FAFC',
+          background: '#FFFFFF',
+          success: '#22C55E',
+          warning: '#F59E0B',
+          error:   '#EF4444',
+          info:    '#0EA5E9',
         },
       },
     },

@@ -1,34 +1,5 @@
 <template>
   <div>
-    <v-alert
-      :type="problemsCount > 0 ? 'warning' : 'success'"
-      variant="tonal"
-      class="mb-4"
-    >
-      <div class="d-flex align-center flex-wrap" style="gap: 12px;">
-        <div>
-          <strong>Found</strong> {{ foundSpecimenFolders }} / {{ totalFieldNotes }} specimen folders
-        </div>
-        <v-divider vertical />
-        <div>
-          <strong>Problems</strong> {{ problemsCount }}
-          <span style="color:#666;">
-            (Missing: {{ missingSpecimens.length }}, Extra: {{ extraFolders.length }}, Duplicates: {{ duplicatesExtraCount }}, Invalid FN: {{ invalidFieldNotes.length }}
-            <template v-if="nearAccletterCount + fnDupConflicts.length + fileIssueTotals + invalidAuthorCount > 0">
-              , Near accletter: {{ nearAccletterCount }}, FN dup conflicts: {{ fnDupConflicts.length }}, Invalid authors: {{ invalidAuthorCount }}, File issues: {{ fileIssueTotals }}
-            </template>
-            )
-          </span>
-        </div>
-        <v-divider vertical />
-        <div>
-          <strong>Unmatched folders</strong> {{ unmatchedFolders.length }} <span style="color:#666;">(info)</span>
-        </div>
-        <div style="flex:1"></div>
-        <!-- Removed local Re-run button; global Run health checks handles this -->
-      </div>
-    </v-alert>
-
     <v-expansion-panels multiple>
       <v-expansion-panel>
         <v-expansion-panel-title>
@@ -144,8 +115,9 @@
 
       <v-expansion-panel>
         <v-expansion-panel-title>
-          <!-- info-only -->
-          <span>Unmatched folders ({{ unmatchedFolders.length }}) — info</span>
+          <span :style="{ color: unmatchedFolders.length > 0 ? '#d32f2f' : 'inherit' }">
+            Unmatched folders ({{ unmatchedFolders.length }})
+          </span>
         </v-expansion-panel-title>
         <v-expansion-panel-text>
           <div class="text-medium-emphasis mb-2">
@@ -165,7 +137,8 @@
       <!-- info-only -->
       <v-expansion-panel>
         <v-expansion-panel-title>
-          <span>Matched folders without images ({{ matchedNoImages.length }}) — info</span>
+          <!-- make info-only panel title without a number to avoid counting it as an issue -->
+          <span>Matched folders without images — info</span>
         </v-expansion-panel-title>
         <v-expansion-panel-text>
           <div class="text-medium-emphasis mb-2">Folders match the naming pattern but contain no images.</div>
@@ -267,28 +240,48 @@
         </v-expansion-panel-title>
         <v-expansion-panel-text>
           <div class="text-medium-emphasis mb-2">
+            Scans matched folders for file issues that break processing: edit files without originals, edited files not marked “s”, “t” without “s” on the same base, and base-name collisions.
+          </div>
+          <div class="text-medium-emphasis mb-2">
             Last scan: <span v-if="lastScanTs">{{ new Date(lastScanTs).toLocaleString() }}</span><span v-else>never</span>
           </div>
+
           <div class="mb-2" v-if="orphanEdits.length">
             <strong>Orphan edit files ({{ orphanEdits.length }})</strong>
+            <div class="text-medium-emphasis mb-1">
+              Edit (“_e”) images that have no corresponding original. These should be regenerated or removed.
+            </div>
             <HcDataTable :headers="fileHeaders" :items="orphanEdits" :items-per-page="10" />
           </div>
+
           <div class="mb-2" v-if="editedNotSelected.length">
             <strong>Edited files not selected “s” ({{ editedNotSelected.length }})</strong>
+            <div class="text-medium-emphasis mb-1">
+              Edited images where neither the edit nor the original carries the “s” tag. Add “s” to the preferred image.
+            </div>
             <HcDataTable :headers="fileHeaders" :items="editedNotSelected" :items-per-page="10" />
           </div>
+
           <div class="mb-2" v-if="taxonWithoutSpecimen.length">
             <strong>“t” tagged without “s” on same base ({{ taxonWithoutSpecimen.length }})</strong>
+            <div class="text-medium-emphasis mb-1">
+              “t” (taxon) tag present but no “s” (specimen) tag on the same base filename. Add the “s” tag.
+            </div>
             <HcDataTable :headers="fileHeaders" :items="taxonWithoutSpecimen" :items-per-page="10" />
           </div>
+
           <div class="mb-2" v-if="baseCollisions.length">
             <strong>Base filename collisions ({{ baseCollisions.length }})</strong>
+            <div class="text-medium-emphasis mb-1">
+              Multiple files share the same base name and extension, which causes ambiguity. Rename or deduplicate.
+            </div>
             <HcDataTable
               :headers="collisionHeaders"
               :items="baseCollisions.map(r => ({ base: r.base, folder: r.folder, files: (r.files || []).join('\n') }))"
               :items-per-page="10"
             />
           </div>
+
           <div v-if="fileIssueTotals === 0" class="text-medium-emphasis">No file-level issues found in last scan.</div>
         </v-expansion-panel-text>
       </v-expansion-panel>
@@ -411,6 +404,23 @@ const fileIssueTotals = computed(() =>
   taxonWithoutSpecimen.value.length +
   baseCollisions.value.length
 )
+
+// New: derive Problems from panel totals and keep in sync
+const panelTotal = computed(() =>
+  missingSpecimens.value.length +
+  extraFolders.value.length +
+  duplicatesExtraCount.value +
+  invalidFieldNotes.value.length +
+  (unmatchedFolders.value?.length || 0) +
+  nearAccletterCount.value +
+  fnDupConflicts.value.length +
+  invalidAuthorCount.value +
+  fileIssueTotals.value
+)
+watch(panelTotal, (n) => {
+  problemsCount.value = n
+  emit('update:problems', n)
+}, { immediate: true })
 
 function formatSpecimenKey(row) {
   const sn = row?.specimenNumber || {}
@@ -579,18 +589,8 @@ function recompute() {
     }
   }
 
-  // Problems: include invalid author codes count
-  problemsCount.value =
-    missingSpecimens.value.length +
-    extraFolders.value.length +
-    duplicatesExtraCount.value +
-    invalidFieldNotes.value.length +
-    nearAccletterCount.value +
-    fnDupConflicts.value.length +
-    invalidAuthorCount.value +
-    fileIssueTotals.value
-
-  emit('update:problems', problemsCount.value)
+  // Problems are derived via watcher; emit current total for parent updates
+  emit('update:problems', panelTotal.value)
 }
 
 // Recompute on sources change

@@ -19,8 +19,8 @@
           class="v-switch--sm"
           hide-details
           :label="onlyWithSelected
-            ? 'With selected photos'
-            : 'All taxa with photos'"
+            ? 'All taxa with photos'
+            : 'With selected photos'"
         />
       </div>
     </div>

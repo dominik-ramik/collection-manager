@@ -48,20 +48,18 @@ export function getTaxonDisplayName(taxonomy) {
  * Get full taxonomy path for display (Group / Family / Species or Subspecies)
  */
 export function getTaxonFullPath(taxonomy) {
-    if (!taxonomy) return 'Unknown'
+    if (!taxonomy) return ''
 
     const parts = []
-    if (taxonomy.group) parts.push(taxonomy.group)
-    if (taxonomy.family) parts.push(taxonomy.family)
+    if (taxonomy.group) parts.push(String(taxonomy.group).trim())
+    if (taxonomy.family) parts.push(String(taxonomy.family).trim())
     if (taxonomy.subspecies) {
-        parts.push(taxonomy.subspecies)
+        parts.push(String(taxonomy.subspecies).trim())
     } else if (taxonomy.species) {
-        parts.push(taxonomy.species)
-    } else {
-        parts.push('Unknown species')
+        parts.push(String(taxonomy.species).trim())
     }
 
-    return parts.join(' / ')
+    return parts.filter(Boolean).join(' / ')
 }
 
 /**

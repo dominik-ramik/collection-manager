@@ -2,7 +2,7 @@
   <v-container>
     <v-alert
       v-if="isMemorized"
-      type="success"
+      color="black"
       variant="tonal"
       class="mb-4"
     >

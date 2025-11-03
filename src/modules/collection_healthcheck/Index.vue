@@ -6,8 +6,7 @@
     <div class="d-flex align-center mb-4" style="gap:12px;">
       <v-btn
         color="primary"
-        variant="flat"
-        style="background:#fff; color:#43a047; font-weight:600;"
+        variant="elevated"
         :loading="running"
         :disabled="running"
         @click="runAllChecks"
@@ -29,26 +28,30 @@
         <v-expansion-panel-title>
           <div class="d-flex align-center justify-space-between w-100">
             <div class="d-flex align-center">
-              <!-- Problems indicator: show '?' with help icon until checks are run -->
-              <v-icon
-                class="mr-1"
-                :color="hasRun[sec.key] ? (problems[sec.key] > 0 ? 'error' : 'success') : 'grey'"
-              >
-                {{ hasRun[sec.key]
-                  ? (problems[sec.key] > 0 ? 'mdi-alert-circle' : 'mdi-check-circle')
-                  : 'mdi-help-circle-outline' }}
-              </v-icon>
-              <span
-                :style="{
-                  color: hasRun[sec.key]
-                    ? (problems[sec.key] > 0 ? '#d32f2f' : '#2e7d32')
-                    : '#757575',
-                  fontWeight: 600,
-                  marginRight: '0.5em'
-                }"
-              >
-                {{ hasRun[sec.key] ? problems[sec.key] : '?' }}
-              </span>
+              <!-- fixed-width wrapper for status icon + number -->
+              <div style="min-width:8em; display:flex; align-items:center;">
+                <!-- Problems indicator: show '?' with help icon until checks are run -->
+                <v-icon
+                  class="mr-1"
+                  :color="hasRun[sec.key] ? (problems[sec.key] > 0 ? 'error' : 'success') : 'grey'"
+                >
+                  {{ hasRun[sec.key]
+                    ? (problems[sec.key] > 0 ? 'mdi-alert-circle' : 'mdi-check-circle')
+                    : 'mdi-help-circle-outline' }}
+                </v-icon>
+                <span
+                  :style="{
+                    color: hasRun[sec.key]
+                      ? (problems[sec.key] > 0 ? '#d32f2f' : '#2e7d32')
+                      : '#757575',
+                    fontWeight: 600,
+                    marginRight: '0.5em'
+                  }"
+                >
+                  {{ hasRun[sec.key] ? problems[sec.key] : '?' }}
+                </span>
+              </div>
+              <!-- section icon + title -->
               <v-icon :icon="sec.icon" class="mr-2" />
               <span class="font-weight-medium">{{ sec.title }}</span>
             </div>
@@ -74,6 +77,7 @@ import { useAppStore } from '@/stores/app'
 import SpecimenPhotosFoldersUnit from './units/SpecimenPhotosFolders/Unit.vue'
 import DeterminationConsistencyUnit from './units/DeterminationConsistency/Unit.vue'
 import FieldNotesIntegrityUnit from './units/FieldNotesIntegrity/Unit.vue'
+import ChecklistUnit from './units/Checklist/Unit.vue' // added
 import symbiotaSettings from '@/modules/symbiota_manager/settings.json'
 import { getDbConfig } from '@/modules/symbiota_manager/dbConfig.js'
 
@@ -84,6 +88,7 @@ const problems = reactive({
   specimenPhotosFolders: 0,
   determinationConsistency: 0,
   fieldNotesIntegrity: 0,
+  checklist: 0, // added
 })
 
 // New: track whether a section has been explicitly run
@@ -91,6 +96,7 @@ const hasRun = reactive({
   fieldNotesIntegrity: false,
   specimenPhotosFolders: false,
   determinationConsistency: false,
+  checklist: false, // added
 })
 
 // New: derived flags and button label
@@ -112,16 +118,22 @@ const sections = [
     component: FieldNotesIntegrityUnit,
   },
   {
+    key: 'determinationConsistency',
+    title: 'Symbiota integrity', // renamed
+    icon: 'mdi-file-search-outline',
+    component: DeterminationConsistencyUnit,
+  },
+  {
+    key: 'checklist',
+    title: 'Checklist integrity',
+    icon: 'mdi-format-list-checks',
+    component: ChecklistUnit,
+  },
+  {
     key: 'specimenPhotosFolders',
     title: 'Specimen photos folders',
     icon: 'mdi-folder-image',
     component: SpecimenPhotosFoldersUnit,
-  },
-  {
-    key: 'determinationConsistency',
-    title: 'Determination consistency',
-    icon: 'mdi-file-search-outline',
-    component: DeterminationConsistencyUnit,
   },
 ]
 
@@ -207,16 +219,18 @@ async function runAllChecks() {
       hasRun.fieldNotesIntegrity = true
       hasRun.specimenPhotosFolders = true
       hasRun.determinationConsistency = true
-      await nextTick()
-      await nextTick()
+      hasRun.checklist = true // added
+      await nextTick(); await nextTick()
     }
-    // Make sure refs exist even if panels are collapsed
+    // Ensure refs exist even if panels are collapsed
     await ensureSectionMounted('fieldNotesIntegrity')
     await tryRunSection('fieldNotesIntegrity', 'Field notes integrity')
+    await ensureSectionMounted('determinationConsistency')
+    await tryRunSection('determinationConsistency', 'Symbiota integrity')
+    await ensureSectionMounted('checklist')
+    await tryRunSection('checklist', 'Checklist')
     await ensureSectionMounted('specimenPhotosFolders')
     await tryRunSection('specimenPhotosFolders', 'Specimen photos folders')
-    await ensureSectionMounted('determinationConsistency')
-    await tryRunSection('determinationConsistency', 'Determination consistency')
     progressText.value = 'All checks finished.'
   } finally {
     // Let users see "finished" briefly

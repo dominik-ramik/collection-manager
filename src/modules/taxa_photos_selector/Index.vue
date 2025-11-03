@@ -23,7 +23,7 @@
         :show-specimen-tag="true"
         :get-specimen-label="getSpecimenLabel"
         :enable-filter-switch="true"
-        :filter-default-tagged-only="true"
+        :filter-default-tagged-only="false"
         :taxonomy="selectedTaxon.taxonomy"
         :toggle-handler="toggleTaxonTag"
       >

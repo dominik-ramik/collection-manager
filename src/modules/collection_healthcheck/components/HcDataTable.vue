@@ -8,7 +8,16 @@
     :must-sort="mustSort"
     class="text-body-2"
     density="compact"
-  />
+  >
+    <!-- render selected fields as HTML -->
+    <template
+      v-for="field in htmlFields"
+      :key="`html-${field}`"
+      v-slot:[`item.${field}`]="{ item }"
+    >
+      <span v-html="item[field]" />
+    </template>
+  </v-data-table>
 </template>
 
 <script setup>
@@ -19,6 +28,7 @@ const props = defineProps({
   defaultSort: { type: [Array, Object], default: () => [] }, // [{ key, order: 'asc'|'desc' }]
   multiSort: { type: Boolean, default: true },
   mustSort: { type: Boolean, default: false },
+  htmlFields: { type: Array, default: () => [] }, // fields to render as HTML
 })
 
 // Normalize headers: ensure key is present (fallback to value) and sortable defaults to true

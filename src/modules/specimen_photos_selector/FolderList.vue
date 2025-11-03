@@ -16,7 +16,7 @@
           <template #append>
             <span v-if="getTagCount(item, 's') > 0"
               class="tag-count-badge"
-              style="background:#8e24aa; color:#fff; border-radius:8px; font-size:0.85em; padding:2px 8px; margin-left:8px; position:absolute; right:12px; top:50%; transform:translateY(-50%);"
+              style="background: var(--v-theme-secondary); color:#fff; border-radius:8px; font-size:0.85em; padding:2px 8px; margin-left:8px; position:absolute; right:12px; top:50%; transform:translateY(-50%);"
             >
               {{ getTagCount(item, 's') }}
             </span>
