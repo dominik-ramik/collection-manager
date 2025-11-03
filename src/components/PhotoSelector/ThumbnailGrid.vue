@@ -53,77 +53,82 @@
       <v-progress-circular indeterminate color="primary" />
     </div>
     <div v-else class="d-flex flex-wrap" style="gap: 1em; position:relative;">
-      <div
+      <v-hover
         v-for="(img, idx) in displayedImages"
         :key="img.name"
-        class="thumbnail-box"
-        :style="{
-          width: '24em',
-          height: '16em',
-          borderRadius: '8px',
-          overflow: 'hidden',
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'center',
-          background: '#fafafa',
-          position: 'relative'
-        }"
-        @mousemove="e => onThumbnailMouseMove(e, idx, img)"
-        @mouseleave="onImgMouseLeave"
-        @click="$emit('thumbnailClick', img)"
+        v-slot="{ isHovering, props }"
       >
-        <!-- Unified overlay icon button -->
         <div
-          style="position:absolute;top:0.5em;left:0.5em;z-index:2;"
-          v-if="isEditFile(img.name) || hasTag(img.name, tagLetter)"
+          v-bind="props"
+          :class="['thumbnail-box', isHovering ? 'elevation-6 thumb-hover' : 'elevation-1']"
+          :style="{
+            width: '24em',
+            height: '16em',
+            borderRadius: '8px',
+            overflow: 'hidden',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            background: '#fafafa',
+            position: 'relative'
+          }"
+          @mousemove="e => onThumbnailMouseMove(e, idx, img)"
+          @mouseleave="onImgMouseLeave"
+          @click="onThumbnailClick(img)"
         >
-          <v-btn
-            size="large"
-            :color="badgeColor"
-            variant="flat"
-            style="width:auto;min-width:6em;min-height:3em;display:flex;align-items:center;justify-content:center;"
-            :disabled="false"
-            :title="getButtonTitle(img)"
-            @mouseenter="img._hover = true"
-            @mouseleave="img._hover = false"
-            @click.stop="handleButtonClick(img)"
-          >
-            <template #prepend>
-              <v-icon style="font-size:1.5em;line-height:1;">
-                {{ getButtonIcon(img) }}
-              </v-icon>
-            </template>
-            <span style="font-size:0.8em; font-weight:500;">
-              {{ getButtonText(img) }}
-            </span>
-          </v-btn>
+         <!-- Unified overlay icon button -->
+         <div
+           style="position:absolute;top:0.5em;left:0.5em;z-index:2;"
+           v-if="isEditFile(img.name) || hasTag(img.name, tagLetter)"
+         >
+           <v-btn
+             size="large"
+             :color="badgeColor"
+             variant="flat"
+             style="width:auto;min-width:6em;min-height:3em;display:flex;align-items:center;justify-content:center;"
+             :disabled="false"
+             :title="getButtonTitle(img)"
+             @mouseenter="img._hover = true"
+             @mouseleave="img._hover = false"
+             @click.stop="handleButtonClick(img)"
+           >
+             <template #prepend>
+               <v-icon style="font-size:1.5em;line-height:1;">
+                 {{ getButtonIcon(img) }}
+               </v-icon>
+             </template>
+             <span style="font-size:0.8em; font-weight:500;">
+               {{ getButtonText(img) }}
+             </span>
+           </v-btn>
+         </div>
+         
+         <!-- Specimen inset tag (bottom right) -->
+         <div
+           v-if="showSpecimenTag && getSpecimenLabel"
+           style="position:absolute;bottom:0.5em;right:0.5em;z-index:2;"
+         >
+           <v-chip
+             size="default"
+             variant="flat"
+             color="red-darken-1"
+             style="font-weight:600;"
+           >
+             {{ getSpecimenLabel(img) }}
+           </v-chip>
+         </div>
+         
+         <v-img
+           :src="img.url"
+           :alt="img.name"
+           width="100%"
+           height="100%"
+           :cover="false"
+           style="object-fit:contain;"
+           ref="imgRefs"
+         />
         </div>
-        
-        <!-- Specimen inset tag (bottom right) -->
-        <div
-          v-if="showSpecimenTag && getSpecimenLabel"
-          style="position:absolute;bottom:0.5em;right:0.5em;z-index:2;"
-        >
-          <v-chip
-            size="default"
-            variant="flat"
-            color="red-darken-1"
-            style="font-weight:600;"
-          >
-            {{ getSpecimenLabel(img) }}
-          </v-chip>
-        </div>
-        
-        <v-img
-          :src="img.url"
-          :alt="img.name"
-          width="100%"
-          height="100%"
-          :cover="false"
-          style="object-fit:contain;"
-          ref="imgRefs"
-        />
-      </div>
+      </v-hover>
       <!-- Spacer after last thumbnail -->
       <div style="width:100%; height:20em;"></div>
     </div>
@@ -152,11 +157,13 @@
     
     <div v-if="!displayedImages.length && !loading" class="mt-4">
       <v-alert type="info" dense>
-        <slot name="empty-state">
-          No images found.
-        </slot>
+        {{ emptyMessage }}
       </v-alert>
     </div>
+    <!-- Internal snackbar for toggle feedback -->
+    <v-snackbar v-model="gridSnack.show" :color="gridSnack.color" :timeout="gridSnack.timeout">
+      {{ gridSnack.message }}
+    </v-snackbar>
   </div>
 </template>
 
@@ -182,6 +189,8 @@ const props = defineProps({
   headerChipVariant: { type: String, default: 'tonal' },
   headerChipSize: { type: String, default: 'large' },
   headerChipClass: { type: String, default: '' },
+  // New: handler invoked to toggle tag; should return { selected:boolean, message?:string, color?:string } or throw Error
+  toggleHandler: { type: Function, default: null },
 })
 
 const emit = defineEmits(['thumbnailClick', 'editIconClick', 'showRevertDialog'])
@@ -330,6 +339,32 @@ function getButtonTitle(img) {
   return img._hover ? 'Click to make a copy for editing' : (isDualTagged ? 'Selected (taxon)' : 'Selected')
 }
 
+// Internal snackbar used when toggleHandler is provided
+const gridSnack = ref({ show: false, message: '', color: 'success', timeout: 3000 })
+function notify(message, color = 'success', timeout = 3000) {
+  if (!message) return
+  gridSnack.value = { show: true, message, color, timeout }
+}
+
+async function onThumbnailClick(img) {
+  // If parent provides a toggleHandler, use it and show feedback here
+  if (typeof props.toggleHandler === 'function') {
+    try {
+      const res = await props.toggleHandler(img)
+      if (!res) return
+      const { selected, message, color } = res
+      // Default messages if none provided
+      const msg = message ?? (selected ? 'Image tagged' : 'Tag removed')
+      notify(msg, color || 'success')
+    } catch (e) {
+      notify(e?.message || 'Operation failed', 'error')
+    }
+    return
+  }
+  // Fallback to legacy event if no handler provided
+  emit('thumbnailClick', img)
+}
+
 function handleButtonClick(img) {
   if (!props.allowEdit) {
     // For taxa selector, clicking does nothing (toggle is on thumbnail)
@@ -348,6 +383,15 @@ const displayedImages = computed(() => {
   if (!props.enableFilterSwitch) return props.images
   if (!showTaggedOnly.value) return props.images
   return (props.images || []).filter(img => hasTag(img.name, props.tagLetter))
+})
+const emptyMessage = computed(() => {
+  const total = (props.images || []).length
+  const filteredEmpty = displayedImages.value.length === 0
+  const filterOn = !!props.enableFilterSwitch && showTaggedOnly.value
+  if (filterOn && total > 0 && filteredEmpty) {
+    return 'No selected images. Turn off "Show only selected pictures" to view all images.'
+  }
+  return 'No images found.'
 })
 </script>
 
@@ -386,5 +430,18 @@ const displayedImages = computed(() => {
 .switch-chip :deep(.v-selection-control__label) {
   color: rgba(0, 0, 0, 0.92);
   font-weight: 600;
+}
+
+/* Subtle hover treatment for thumbnails (Vuetify best practices: elevation + smooth transition) */
+.thumbnail-box {
+  border: 1px solid rgba(0, 0, 0, 0.06);
+  transition: box-shadow 150ms ease, transform 150ms ease, border-color 150ms ease;
+  will-change: transform, box-shadow;
+}
+
+/* Lift and tint border using theme primary on hover */
+.thumbnail-box.thumb-hover {
+  transform: translateY(-2px);
+  border-color: rgba(var(--v-theme-primary), 0.35);
 }
 </style>

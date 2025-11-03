@@ -11,8 +11,7 @@ export {}
 /* prettier-ignore */
 declare module 'vue' {
   export interface GlobalComponents {
-    FolderSidebar: typeof import('./src/components/FolderSidebar.vue')['default']
-    FolderThumbnailGrid: typeof import('./src/components/FolderThumbnailGrid.vue')['default']
+    DataSourcesButton: typeof import('./src/components/DataSourcesButton.vue')['default']
     RouterLink: typeof import('vue-router')['RouterLink']
     RouterView: typeof import('vue-router')['RouterView']
     ThumbnailGrid: typeof import('./src/components/PhotoSelector/ThumbnailGrid.vue')['default']

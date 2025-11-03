@@ -1,14 +1,35 @@
 <template>
   <v-container>
+    <!-- Cached notice and actions -->
+    <v-alert
+      v-if="usingCache"
+      type="success"
+      variant="tonal"
+      class="mb-3"
+    >
+      Using cached Field Notes data from previous session
+      <span v-if="fileName"> ({{ fileName }})</span>.
+      <v-btn
+        class="ml-3"
+        color="primary"
+        size="small"
+        variant="flat"
+        @click="repick"
+      >
+        Pick different file
+      </v-btn>
+    </v-alert>
+
     <p>Select an Excel (.xlsx) file containing field notes.</p>
     <v-file-input
       label="Pick XLSX file"
       accept=".xlsx"
-      @change="onFileChange"
-      :disabled="!!fileName"
+      :disabled="!!fileName && usingCache"
+      :loading="loading"
       show-size
+      @change="e => onFileChange(e, appStore)"
     />
-    <div v-if="fileName" class="mt-4">
+    <div v-if="fileName && !usingCache" class="mt-4">
       <v-icon color="success" class="mr-2">mdi-check-circle</v-icon>
       <span>Loaded file: <strong>{{ fileName }}</strong></span>
     </div>
@@ -19,65 +40,31 @@
 </template>
 
 <script setup>
-import { ref } from 'vue'
+import { onMounted } from 'vue'
 import { useAppStore } from '@/stores/app'
-import sheetReader from '@/utils/sheetReader'
 import settings from './settings.json'
+import { useSheetCache } from '@/composables/useSheetCache'
 
 const appStore = useAppStore()
-const fileName = ref('')
-const error = ref('')
-const sheetData = ref([])
 
-function onFileChange(event) {
-  error.value = ''
-  let inputFile = null
-  if (event && event.target && event.target.files && event.target.files.length > 0) {
-    inputFile = event.target.files[0]
+const {
+  fileName,
+  error,
+  loading,
+  usingCache,
+  repick,
+  onFileChange,
+  init,
+} = useSheetCache({
+  sourceName: 'field_notes',
+  storeField: 'fieldNotesData',
+  settings,
+  getPostprocessor: async () => {
+    const mod = await import('./index.js')
+    const name = settings.settings.dataPostprocessor
+    return name && typeof mod[name] === 'function' ? mod[name] : null
   }
-  if (
-    !inputFile ||
-    !(inputFile instanceof File) ||
-    !inputFile.name.toLowerCase().endsWith('.xlsx')
-  ) {
-    error.value = 'Failed to read sheet: Please select a valid .xlsx file.'
-    fileName.value = ''
-    return
-  }
-  fileName.value = inputFile.name
+})
 
-  const reader = new FileReader()
-  reader.onload = async function(e) {
-    try {
-      const buffer = e.target.result
-      let postprocessor = null
-      const postprocessorName = settings.settings.dataPostprocessor
-      if (postprocessorName) {
-        const mod = await import('./index.js')
-        if (typeof mod[postprocessorName] === 'function') {
-          postprocessor = mod[postprocessorName]
-        }
-      }
-      const result = await sheetReader.readSheet(
-        buffer,
-        settings.settings.sheetName,
-        settings.settings.data,
-        postprocessor
-      )
-      sheetData.value = result
-      appStore.fieldNotesData = result
-      appStore.ready.dataSources['field_notes'] = true
-      
-      console.log('Field Notes loaded:', result)
-    } catch (err) {
-      error.value = 'Failed to read sheet: ' + err.message
-      fileName.value = ''
-    }
-  }
-  reader.onerror = function(e) {
-    error.value = 'Failed to read sheet: FileReader error'
-    fileName.value = ''
-  }
-  reader.readAsArrayBuffer(inputFile)
-}
+onMounted(() => { init(appStore) })
 </script>

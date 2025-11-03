@@ -25,7 +25,7 @@
         :enable-filter-switch="true"
         :filter-default-tagged-only="true"
         :taxonomy="selectedTaxon.taxonomy"
-        @thumbnail-click="onThumbnailClick"
+        :toggle-handler="toggleTaxonTag"
       >
         <template #empty-state>
           No images found for this taxon.
@@ -87,11 +87,10 @@ async function renameFileInFolder(folderHandle, oldName, newName) {
   }
 }
 
-async function onThumbnailClick(img) {
+async function toggleTaxonTag(img) {
   // Only allow toggling 't' tag on images that have 's' tag
   if (!hasTag(img.name, 's')) {
-    showSnackbar('Only selected specimen images can be tagged for taxa', 'warning')
-    return
+    return { selected: false, message: 'Only selected specimen images can be tagged for taxa', color: 'warning' }
   }
 
   // Find the folder handle for this image
@@ -102,8 +101,7 @@ async function onThumbnailClick(img) {
   )
 
   if (!folder) {
-    showSnackbar('Folder not found for this image', 'error')
-    return
+    throw new Error('Folder not found for this image')
   }
 
   const folderHandle = folder.handle
@@ -112,8 +110,6 @@ async function onThumbnailClick(img) {
   try {
     const newName = toggleTagLetter(oldName, 't')
     await renameFileInFolder(folderHandle, oldName, newName)
-    
-    // Propagate to edit file if exists
     await propagateTagToEdit(folderHandle, newName, 't')
 
     // Update the image in aggregatedImages array
@@ -138,10 +134,10 @@ async function onThumbnailClick(img) {
 
     // Recompute tag counts
     await computeAllTagCounts()
-    
-    showSnackbar(hasTag(newName, 't') ? 'Image tagged for taxon' : 'Taxon tag removed', 'success')
+    const selected = hasTag(newName, 't')
+    return { selected, message: selected ? 'Image tagged for taxon' : 'Taxon tag removed', color: 'success' }
   } catch (e) {
-    showSnackbar('File operation failed: ' + e.message, 'error')
+    throw new Error('File operation failed: ' + e.message)
   }
 }
 

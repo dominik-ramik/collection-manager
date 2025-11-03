@@ -22,6 +22,8 @@ export const useAppStore = defineStore('app', {
     checklistData: null, // Add checklist data
     specimensPhotosFolderResult: null,
     modulesObj: {}, // Add for storing loaded module objects
+    // New: force showing data sources per module (moduleName => true)
+    forceDsForModule: {},
   }),
   actions: {
     setModules (mods) {
@@ -56,6 +58,27 @@ export const useAppStore = defineStore('app', {
       this.symbiota.token = tokenObj
       this.symbiota.authenticated = !!(tokenObj && tokenObj.user && tokenObj.pass)
       // Do NOT store credentials in localStorage anymore
+    },
+    clearSymbiotaToken() {
+      this.symbiota.token = null
+      this.symbiota.authenticated = false
+    },
+    // New: helpers to control data source UI per module
+    showDataSourcesForModule (name) {
+      if (!name) return
+      this.forceDsForModule = { ...this.forceDsForModule, [name]: true }
+    },
+    hideDataSourcesForModule (name) {
+      if (!name) return
+      const next = { ...this.forceDsForModule }
+      delete next[name]
+      this.forceDsForModule = next
+    },
+    toggleDataSourcesForModule (name) {
+      if (!name) return
+      const isOn = !!this.forceDsForModule?.[name]
+      if (isOn) this.hideDataSourcesForModule(name)
+      else this.showDataSourcesForModule(name)
     },
   },
 })

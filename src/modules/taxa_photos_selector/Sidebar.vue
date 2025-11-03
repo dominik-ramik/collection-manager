@@ -41,7 +41,7 @@
           <v-list-item-title
             :style="{ color: getTagCount(item, 's') === 0 ? '#9e9e9e' : undefined }"
           >
-            {{ taxonDisplayName(item) }}
+            {{ speciesNameOf(item) }}
           </v-list-item-title>
           <template #append>
             <span v-if="getTagCount(item, 't') > 0"
@@ -72,7 +72,6 @@ const {
   selectTaxon,
   onTypeChange,
   taxonKeyOf,
-  taxonDisplayName,
   aggregatedImages,
   computeAllTagCounts,
 } = taxaPhotosStore
@@ -159,6 +158,11 @@ function onListItemKeydown(event, idx) {
 function hasImages(taxon) {
   // Check if taxon has at least one folder (list remains clickable regardless of s-tag presence)
   return taxon.folders && taxon.folders.length > 0
+}
+
+function speciesNameOf(taxon) {
+  const t = taxon?.taxonomy || taxon || {}
+  return t.subspecies || t.species || 'Unknown species'
 }
 </script>
 

@@ -1,9 +1,5 @@
 <template>
   <v-card class="mx-auto my-8" max-width="420" elevation="2">
-    <v-card-title>
-      <v-icon start class="mr-2">mdi-database</v-icon>
-      Symbiota Connection
-    </v-card-title>
     <v-card-text>
       <v-form @submit.prevent="$emit('submit')" validate-on="submit">
         <v-text-field

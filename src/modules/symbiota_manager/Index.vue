@@ -28,7 +28,6 @@ import { ref, computed, watch } from 'vue'
 import { useAppStore } from '@/stores/app'
 import SymbiotaFilterSection from './SymbiotaFilterSection.vue'
 import SymbiotaModifyIdentification from './SymbiotaModifyIdentification.vue'
-import SymbiotaBackupSection from './SymbiotaBackupSection.vue'
 import settings from './settings.json'
 
 const appStore = useAppStore()
@@ -42,7 +41,6 @@ const editAuthorship = ref('')
 const menuItems = [
   { value: 'filter', label: 'Filter Specimens', icon: 'mdi-filter' },
   { value: 'identification', label: 'Modify Identifications', icon: 'mdi-pencil' },
-  { value: 'backup', label: 'Backup', icon: 'mdi-database-export' },
 ]
 
 const activeSection = ref('filter')
@@ -83,7 +81,6 @@ watch(
 const sectionComponent = computed(() => {
   if (activeSection.value === 'filter') return SymbiotaFilterSection
   if (activeSection.value === 'identification') return SymbiotaModifyIdentification
-  if (activeSection.value === 'backup') return SymbiotaBackupSection
   return null
 })
 

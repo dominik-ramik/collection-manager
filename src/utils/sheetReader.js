@@ -33,7 +33,16 @@ export default {
         }
       }
       
-      result.push(dataPostprocessor ? dataPostprocessor(obj) : obj)
+      // Attach original Excel line number (1-based; header is row 1)
+      const excelRow = i + 1
+      obj.line_number = excelRow
+
+      // Let postprocessor run, but ensure line_number is kept
+      const processed = dataPostprocessor ? dataPostprocessor(obj) : obj
+      if (processed && typeof processed === 'object' && processed.line_number == null) {
+        processed.line_number = excelRow
+      }
+      result.push(processed)
     }
     
     return result

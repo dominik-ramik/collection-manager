@@ -18,7 +18,7 @@
       :enable-filter-switch="true"
       :filter-default-tagged-only="false"
       :taxonomy="selectedType === 'matched' && matchedTaxon ? matchedTaxon.taxonomy : null"
-      @thumbnail-click="onThumbnailClick"
+      :toggle-handler="toggleSpecimenTag"
       @edit-icon-click="onEditIconClick"
       @show-revert-dialog="showRevertDialog"
     />
@@ -142,7 +142,7 @@ async function renameFileInFolder(folderHandle, oldName, newName) {
 const showDualTagRemovalDialog = ref(false)
 const pendingDualTagRemoval = ref(null)
 
-async function onThumbnailClick(img) {
+async function toggleSpecimenTag(img) {
   const folderHandle = selectedFolder.value.handle
   const oldName = img.name
   const parsed = parseFilename(oldName)
@@ -150,7 +150,7 @@ async function onThumbnailClick(img) {
   // If file is edited AND tagged "s", prevent untagging and show dialog
   if (parsed.edit && hasTag(img.name, 's')) {
     showEditMustBeSelectedDialog.value = true
-    return
+    return null
   }
   
   // Check if file has both 's' and 't' tags and we're about to remove 's'
@@ -158,7 +158,7 @@ async function onThumbnailClick(img) {
     // Show confirmation dialog
     pendingDualTagRemoval.value = img
     showDualTagRemovalDialog.value = true
-    return
+    return null
   }
   
   try {
@@ -193,8 +193,11 @@ async function onThumbnailClick(img) {
     tagCounts.value[folderKey] = {
       s: countTaggedFiles(files, 's')
     }
+    // Let grid show message
+    const selected = hasTag(newName, 's')
+    return { selected, message: selected ? 'Image selected' : 'Selection removed', color: 'success' }
   } catch (e) {
-    showSnackbar('File operation failed: ' + e.message, 'error')
+    throw new Error('File operation failed: ' + e.message)
   }
 }
 

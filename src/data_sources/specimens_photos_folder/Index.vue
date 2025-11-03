@@ -108,7 +108,8 @@ async function findMatchingFolders(folderHandle, regex) {
   // Only include folders with images in matching array
   const matchingWithImages = matching.filter(f => f.hasImages)
 
-  return { matching: matchingWithImages, nonmatching }
+  // Return both: matching (with images) for backward-compat, and matchingAll for integrity checks
+  return { matching: matchingWithImages, nonmatching, matchingAll: matching }
 }
 
 async function pickFolder() {

@@ -1,6 +1,5 @@
 {
   "title": "Collection Healthcheck",
   "icon": "mdi-heart-pulse",
-  "dataSources": ["checklist"],
-  "settings": {}
+  "dataSources": ["symbiota", "specimens_photos_folder", "checklist", "field_notes"]
 }

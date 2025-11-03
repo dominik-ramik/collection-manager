@@ -19,6 +19,10 @@
           :is="currentModuleObj.appBar"
         />
       </div>
+      <!-- New: always show Data Sources button last when a module is shown -->
+      <div v-if="currentModuleObj" style="margin-right: 0.5em; display:flex; align-items:center; height:100%;">
+        <DataSourcesButton />
+      </div>
     </v-app-bar>
 
     <!-- Main menu drawer -->
@@ -85,6 +89,7 @@ import { ref, watch, computed } from 'vue'
 import { useAppStore } from '@/stores/app'
 import { useRoute } from 'vue-router'
 import leavesImage from '@/assets/leaves.jpg'
+import DataSourcesButton from '@/components/DataSourcesButton.vue'
 const $route = useRoute()
 const appStore = useAppStore()
 const modules = appStore.modules
