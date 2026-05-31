@@ -1,8 +1,12 @@
 <template>
   <v-container>
     <p>Select a folder which contains the specimen photos.</p>
-    <v-btn color="primary" @click="pickFolder">Pick Folder</v-btn>
-    <div v-if="folderName" class="mt-4">
+    <v-btn color="primary" @click="pickFolder" :loading="scanning" :disabled="scanning">Pick Folder</v-btn>
+    <div v-if="scanning" class="mt-4 d-flex align-center">
+      <v-progress-circular indeterminate color="primary" size="32" class="mr-3" />
+      <span>Scanning folders…</span>
+    </div>
+    <div v-if="folderName && !scanning" class="mt-4">
       <v-icon color="success" class="mr-2">mdi-check-circle</v-icon>
       <span>Selected folder: <strong>{{ folderName }}</strong></span>
     </div>
@@ -23,14 +27,20 @@
 </template>
 
 <script setup>
-import { ref, computed } from 'vue'
+import { ref } from 'vue'
 import { useAppStore } from '@/stores/app'
 import settings from './settings.json'
 
 const appStore = useAppStore()
 const folderName = ref('')
 const showNoFoldersDialog = ref(false)
+const scanning = ref(false)
 const emit = defineEmits(['ready'])
+
+// Helper: yield to the browser so pending UI updates (spinners) render
+function yieldToUI() {
+  return new Promise(resolve => requestAnimationFrame(() => setTimeout(resolve, 0)))
+}
 
 // Try to restore folder handle from store (if available)
 if (appStore.ready.dataSources['specimens_photos_folder'] && appStore.folderHandle) {
@@ -44,16 +54,28 @@ async function findMatchingFolders(folderHandle, regex) {
 
   // Async check for images in a folder
   async function folderHasImages(folderHandle) {
-    for await (const entry of folderHandle.values()) {
-      if (entry.kind === 'file' && /\.(jpe?g)$/i.test(entry.name)) {
-        return true
+    try {
+      for await (const entry of folderHandle.values()) {
+        if (entry.kind === 'file' && /\.(jpe?g)$/i.test(entry.name)) {
+          return true
+        }
       }
+    } catch (e) {
+      console.warn(`[SpecimenPhotosFolder] Could not read contents of "${folderHandle.name}":`, e.message)
     }
     return false
   }
 
   async function traverse(handle, parentPath = '') {
-    for await (const entry of handle.values()) {
+    let entries
+    try {
+      entries = handle.values()
+    } catch (e) {
+      console.warn(`[SpecimenPhotosFolder] Could not list directory "${handle.name}":`, e.message)
+      return
+    }
+    for await (const entry of entries) {
+      try {
       if (entry.kind === 'directory') {
         const fullPath = parentPath ? `${parentPath}/${entry.name}` : entry.name
         const matchResult = regex.exec(fullPath)
@@ -87,6 +109,9 @@ async function findMatchingFolders(folderHandle, regex) {
           await traverse(entry, fullPath)
         }
       }
+      } catch (e) {
+        console.warn(`[SpecimenPhotosFolder] Skipping inaccessible entry in "${handle.name}":`, e.message)
+      }
     }
   }
 
@@ -117,11 +142,19 @@ async function pickFolder() {
     // Show folder picker (requires browser support)
     const handle = await window.showDirectoryPicker()
     if (handle) {
+      // Signal loading immediately — before any heavy work
+      scanning.value = true
+      appStore.setDataSourceLoading('specimens_photos_folder', true)
+
+      // Yield so the spinner actually renders before blocking work
+      await yieldToUI()
+
       appStore.folderHandle = handle
       folderName.value = handle.name
       // Get regex from settings (now using match_folder)
       const regexStr = settings.settings.match_folder
-      const re = new RegExp(regexStr)
+      // Use case-insensitive matching to avoid missing valid folders
+      const re = new RegExp(regexStr, 'i')
       const result = await findMatchingFolders(handle, re)
       // Output the resulting object of matched and unmatched folders
       console.log('[SpecimenPhotosFolder] Matching folders:', result.matching)
@@ -132,26 +165,26 @@ async function pickFolder() {
         appStore.folderHandle = null
         appStore.specimensPhotosFolderResult = null
         appStore.ready.dataSources['specimens_photos_folder'] = false
+        scanning.value = false
+        appStore.setDataSourceLoading('specimens_photos_folder', false)
         emit('ready', false)
         showNoFoldersDialog.value = true
         return
       }
-      // Remove folderHasImages from this file, and update selectedArray to use hasImages property
-      const selectedArray = computed(() =>
-        (selectedType.value === 'matched' ? matched.value : unmatched.value)
-          .filter(folder => folder.hasImages)
-      )
       appStore.specimensPhotosFolderResult = result
       console.log("Folders", result)
       appStore.ready.dataSources['specimens_photos_folder'] = true
+      scanning.value = false
+      appStore.setDataSourceLoading('specimens_photos_folder', false)
       emit('ready')
     } else {
       console.log('No folder handle returned')
     }
   } catch (e) {
+    scanning.value = false
+    appStore.setDataSourceLoading('specimens_photos_folder', false)
     console.log('Error in pickFolder:', e)
     appStore.setError('Unable to access folder: ' + e.message)
   }
 }
-
 </script>

@@ -12,12 +12,20 @@
             :key="ds.name"
             class="mb-4"
             variant="elevated"
+            style="position:relative;"
           >
             <v-card-title class="d-flex align-center" style="gap:0.5em;">
               <v-icon :icon="ds.settings?.settings?.icon || ds.settings?.icon || 'mdi-alert-circle-outline'" color="primary" size="28" />
               <span style="font-size:1.1em; font-weight:500;">
                 {{ ds.settings?.settings?.title || ds.settings?.title || ds.name }}
               </span>
+              <!-- Ready indicator -->
+              <v-icon
+                v-if="appStore.ready.dataSources[ds.name]"
+                color="success"
+                size="22"
+                class="ml-2"
+              >mdi-check-circle</v-icon>
             </v-card-title>
             <v-divider />
             <v-card-text>
@@ -32,9 +40,10 @@
                 {{ ds.error || `Data source "${ds.name}" loader missing or malformed.` }}
               </v-alert>
             </v-card-text>
+            
           </v-card>
 
-          <!-- New: bottom action to close forced view without changes -->
+          <!-- bottom action to close forced view without changes -->
           <div v-if="forceShow" class="ds-actions">
             <v-btn
               variant="tonal"
@@ -48,7 +57,12 @@
         </div>
 
         <!-- Main module UI when all data sources are ready -->
-        <component v-else-if="moduleObj?.main" :is="moduleObj.main" />
+        <template v-else-if="moduleObj?.main">
+          <div style="position:relative;">
+            <component :is="moduleObj.main" />
+          </div>
+        </template>
+
         <div v-else class="pa-8 text-center">
           <v-progress-circular indeterminate color="primary" />
         </div>
@@ -58,9 +72,50 @@
 </template>
 
 <script setup>
-import { ref, watch, computed } from 'vue'
+import { ref, watch, computed, markRaw } from 'vue'
 import { useRoute } from 'vue-router'
 import { useAppStore } from '@/stores/app'
+
+// Data-source components and settings
+import FieldNotesDS from '@/data_sources/field_notes/Index.vue'
+import fieldNotesSettingsMod from '@/data_sources/field_notes/settings.json'
+import ChecklistDS from '@/data_sources/checklist/Index.vue'
+import checklistSettingsMod from '@/data_sources/checklist/settings.json'
+import SpecimensPhotosFolderDS from '@/data_sources/specimens_photos_folder/Index.vue'
+import specimensPhotosFolderSettingsMod from '@/data_sources/specimens_photos_folder/settings.json'
+import SymbiotaDS from '@/data_sources/symbiota/Index.vue'
+import symbiotaSettingsMod from '@/data_sources/symbiota/settings.json'
+
+// Module entry points
+import SpecimenPhotosModule from '@/modules/specimen_photos_selector/index.js'
+import TaxaPhotosModule from '@/modules/taxa_photos_selector/index.js'
+import SymbiotaManagerModule from '@/modules/symbiota_manager/index.js'
+import HealthcheckModule from '@/modules/collection_healthcheck/index.js'
+
+const dsRegistry = {
+  field_notes: {
+    component: markRaw(FieldNotesDS),
+    settings: fieldNotesSettingsMod?.default ?? fieldNotesSettingsMod,
+  },
+  checklist: {
+    component: markRaw(ChecklistDS),
+    settings: checklistSettingsMod?.default ?? checklistSettingsMod,
+  },
+  specimens_photos_folder: {
+    component: markRaw(SpecimensPhotosFolderDS),
+    settings: specimensPhotosFolderSettingsMod?.default ?? specimensPhotosFolderSettingsMod,
+  },
+  symbiota: {
+    component: markRaw(SymbiotaDS),
+    settings: symbiotaSettingsMod?.default ?? symbiotaSettingsMod,
+  },
+}
+const moduleRegistry = {
+  specimen_photos_selector: SpecimenPhotosModule,
+  taxa_photos_selector: TaxaPhotosModule,
+  symbiota_manager: SymbiotaManagerModule,
+  collection_healthcheck: HealthcheckModule,
+}
 
 const route = useRoute()
 const appStore = useAppStore()
@@ -69,20 +124,30 @@ const moduleObj = ref(null)
 const showDataSourceUi = ref(false)
 const dsList = ref([])
 
-// New: respect forced view toggle
 const forceShow = computed(() => !!appStore.forceDsForModule?.[moduleName.value])
+const loadSeq = ref(0)
 
 watch(
   () => route.params.name,
   (val) => {
     moduleName.value = val
-    loadModule()
   }
 )
 
+const requiredDsNames = computed(() =>
+  appStore.modules.find(m => m.name === moduleName.value)?.dataSources ?? []
+)
+const allReady = computed(() =>
+  requiredDsNames.value.length === 0 ||
+  requiredDsNames.value.every(ds => appStore.ready.dataSources[ds])
+)
+
 async function loadModule() {
-  const moduleMeta = appStore.modules.find(m => m.name === moduleName.value)
+  const mySeq = ++loadSeq.value
+  const name = moduleName.value
+  const moduleMeta = appStore.modules.find(m => m.name === name)
   if (!moduleMeta) {
+    if (mySeq !== loadSeq.value) return
     appStore.setError('Module settings.json missing or malformed.')
     moduleObj.value = null
     showDataSourceUi.value = false
@@ -91,68 +156,56 @@ async function loadModule() {
   }
 
   const requiredDs = moduleMeta.dataSources || []
-  const allReady = requiredDs.every(ds => appStore.ready.dataSources[ds])
+  const allReadyNow = requiredDs.every(ds => appStore.ready.dataSources[ds])
 
-  // Updated condition: also show when forceShow is true
-  if ((!allReady || forceShow.value) && requiredDs.length > 0) {
+  if ((!allReadyNow || forceShow.value) && requiredDs.length > 0) {
+    const entries = requiredDs.map((dsName) => {
+      const reg = dsRegistry[dsName]
+      if (reg) {
+        return { name: dsName, component: reg.component, settings: reg.settings }
+      }
+      return { name: dsName, component: null, settings: null, error: `Data source "${dsName}" loader missing or malformed.` }
+    })
+    if (mySeq !== loadSeq.value) return
     showDataSourceUi.value = true
     moduleObj.value = null
-
-    const entries = await Promise.all(requiredDs.map(async (dsName) => {
-      try {
-        const comp = (await import(`@/data_sources/${dsName}/index.js`)).default
-        const settings = ((await import(`@/data_sources/${dsName}/settings.json`)).default) || {}
-        return { name: dsName, component: comp, settings }
-      } catch (e) {
-        // Keep entry with error to show alert instead of skipping
-        const msg = `Data source "${dsName}" loader missing or malformed.`
-        appStore.setError(msg)
-        return { name: dsName, component: null, settings: null, error: msg }
-      }
-    }))
-
-    // Do not filter out missing components; we want to show alerts for them
     dsList.value = entries
-  } else {
-    // All ready and not forced – show the main module UI
-    showDataSourceUi.value = false
-    dsList.value = []
-    try {
-      const mod = await import(`@/modules/${moduleName.value}/index.js`)
-      moduleObj.value = mod.default
-      appStore.modulesObj = appStore.modulesObj || {}
-      appStore.modulesObj[moduleName.value] = moduleObj.value
-    } catch (e) {
-      appStore.setError(`Module "${moduleName.value}" main component missing or malformed.`)
-      moduleObj.value = null
-      console.error(`Module "${moduleName.value}" main component missing or malformed.`, e)
-    }
+    return
   }
+
+  const mod = moduleRegistry[name]
+  if (!mod) {
+    if (mySeq !== loadSeq.value) return
+    appStore.setError(`Module "${name}" main component missing or malformed.`)
+    moduleObj.value = null
+    return
+  }
+
+  if (mySeq !== loadSeq.value) return
+  showDataSourceUi.value = false
+  dsList.value = []
+  appStore.setModuleReady?.(name, false)
+  moduleObj.value = markRaw(mod)
+  appStore.modulesObj = appStore.modulesObj || {}
+  appStore.modulesObj[name] = moduleObj.value
+  appStore.setActiveModule?.(name)
 }
 
-// New: close forced view without changes
+const moduleDeps = computed(() => [
+  moduleName.value,
+  forceShow.value,
+  ...(appStore.modules.find(m => m.name === moduleName.value)?.dataSources?.map(ds => appStore.ready.dataSources[ds]) ?? [])
+])
+
+async function refreshModule() {
+  await loadModule();
+}
+
+watch(moduleDeps, refreshModule, { immediate: true, deep: true })
+
 function closeForced() {
   appStore.hideDataSourcesForModule(moduleName.value)
 }
-
-watch(
-  () => [
-    moduleName.value,
-    forceShow.value,
-    ...(appStore.modules.find(m => m.name === moduleName.value)?.dataSources?.map(ds => appStore.ready.dataSources[ds]) ?? [])
-  ],
-  loadModule,
-  { immediate: true, deep: true }
-)
-
-// New: compute readiness across required data sources for current module
-const requiredDsNames = computed(() =>
-  appStore.modules.find(m => m.name === moduleName.value)?.dataSources ?? []
-)
-const allReady = computed(() =>
-  requiredDsNames.value.length === 0 ||
-  requiredDsNames.value.every(ds => appStore.ready.dataSources[ds])
-)
 </script>
 
 <style scoped>
@@ -201,5 +254,21 @@ const allReady = computed(() =>
 .ds-actions {
   display: flex;
   justify-content: flex-start;
+}
+
+/* Per-data-source loading overlay */
+.ds-loading-overlay {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(255,255,255,0.9);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  z-index: 51;
+  border-radius: 6px;
 }
 </style>

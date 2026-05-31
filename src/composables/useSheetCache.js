@@ -72,6 +72,7 @@ export function useSheetCache({ sourceName, storeField, settings, getPostprocess
     try {
       const cached = await idbGet(sourceName)
       if (cached && Array.isArray(cached.data)) {
+        appStore.setDataSourceLoading?.(sourceName, true)
         sheetData.value = cached.data
         cacheMeta.value = { fileName: cached.fileName || '', timestamp: cached.timestamp || Date.now() }
         fileName.value = cached.fileName || '(cached sheet)'
@@ -79,8 +80,10 @@ export function useSheetCache({ sourceName, storeField, settings, getPostprocess
         // set store + mark ready
         appStore[storeField] = cached.data
         appStore.ready.dataSources[sourceName] = true
+        appStore.setDataSourceLoading?.(sourceName, false)
       }
     } catch (e) {
+      appStore.setDataSourceLoading?.(sourceName, false)
       console.warn(`[${sourceName}] Failed to read cache`, e)
     }
   }
@@ -108,6 +111,7 @@ export function useSheetCache({ sourceName, storeField, settings, getPostprocess
     }
     fileName.value = inputFile.name
     loading.value = true
+    appStore.setDataSourceLoading?.(sourceName, true)
     try {
       const buffer = await inputFile.arrayBuffer()
       let postprocessor = null
@@ -142,6 +146,7 @@ export function useSheetCache({ sourceName, storeField, settings, getPostprocess
       fileName.value = ''
     } finally {
       loading.value = false
+      appStore.setDataSourceLoading?.(sourceName, false)
     }
   }
 

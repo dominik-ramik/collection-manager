@@ -17,7 +17,7 @@
 </template>
 
 <script setup>
-import { onMounted } from 'vue'
+import { onMounted, watch } from 'vue'
 import { useAppStore } from '@/stores/app'
 import settings from './settings.json'
 import { useSheetCache } from '@/composables/useSheetCache'
@@ -51,4 +51,23 @@ function handleFileChange(e) {
 }
 
 onMounted(() => { init(appStore) })
+
+// Log when field notes data is loaded into the app store
+watch(
+  () => appStore.fieldNotesData,
+  (newVal, oldVal) => {
+    try {
+      const becameLoaded = newVal && (!oldVal || (Array.isArray(newVal) && newVal.length > 0 && Array.isArray(oldVal) && oldVal.length === 0))
+      // Also handle first non-empty assignment when oldVal is falsy
+      if (newVal && !oldVal) {
+        console.log('[field_notes] loaded:', newVal)
+      } else if (becameLoaded) {
+        console.log('[field_notes] loaded (updated):', newVal)
+      }
+    } catch (e) {
+      // Guard against logging errors
+      console.log('[field_notes] loaded (could not stringify)', newVal.value)
+    }
+  }
+)
 </script>

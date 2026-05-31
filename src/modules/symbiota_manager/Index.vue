@@ -24,7 +24,7 @@
 </template>
 
 <script setup>
-import { ref, computed, watch } from 'vue'
+import { ref, computed, watch, onMounted, onBeforeUnmount } from 'vue'
 import { useAppStore } from '@/stores/app'
 import SymbiotaFilterSection from './SymbiotaFilterSection.vue'
 import SymbiotaModifyIdentification from './SymbiotaModifyIdentification.vue'
@@ -102,6 +102,14 @@ const sectionProps = computed(() => {
     }
   }
   return {}
+})
+
+onMounted(() => {
+  // Signal module ready after component mount (module may still fetch data lazily)
+  appStore.setModuleReady?.('symbiota_manager', true)
+})
+onBeforeUnmount(() => {
+  appStore.setModuleReady?.('symbiota_manager', false)
 })
 </script>
 

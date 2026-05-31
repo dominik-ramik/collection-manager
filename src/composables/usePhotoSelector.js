@@ -1,5 +1,5 @@
-import { ref, computed, watch, nextTick } from 'vue'
-import { parseFilename, hasTag, isEditFile, countTaggedFiles } from '@/utils/tagging'
+import { ref, shallowRef, nextTick } from 'vue'
+import { parseFilename, countTaggedFiles } from '@/utils/tagging'
 
 /**
  * Shared composable for photo selector modules
@@ -21,14 +21,12 @@ export function usePhotoSelector(config) {
     filterImagesFn = null
   } = config
 
-  // State
   const selectedItem = ref(null)
   const selectedItemKey = ref(null)
-  const images = ref([])
+  const images = shallowRef([])
   const loadingImages = ref(false)
   const tagCounts = ref({})
   
-  // Snackbar state
   const snackbar = ref({
     show: false,
     message: '',
@@ -47,13 +45,15 @@ export function usePhotoSelector(config) {
    * Compute tag counts for all items
    */
   async function computeAllTagCounts(itemsArr) {
+    const newCounts = {}
     for (const item of itemsArr) {
       const files = await getFilesForItem(item)
       const key = itemKeyFn(item)
-      tagCounts.value[key] = {
+      newCounts[key] = {
         [tagLetter]: countTaggedFiles(files, tagLetter)
       }
     }
+    tagCounts.value = newCounts
   }
 
   /**
@@ -107,30 +107,29 @@ export function usePhotoSelector(config) {
    * Prefer edit files over originals when both exist
    */
   function preferEditFiles(files) {
+    const sorted = [...files].sort((a, b) => a.name.localeCompare(b.name))
+    const editBases = new Set()
+    const parsedMap = new Map()
+
+    for (const file of sorted) {
+      const parsed = parseFilename(file.name)
+      parsedMap.set(file, parsed)
+      if (parsed.edit) editBases.add(parsed.base + parsed.ext)
+    }
+
     const displayFiles = []
     const seenBases = new Set()
-    
-    files.sort((a, b) => a.name.localeCompare(b.name))
-    
-    for (const file of files) {
-      const parsed = parseFilename(file.name)
+    for (const file of sorted) {
+      const parsed = parsedMap.get(file)
       const baseKey = parsed.base + parsed.ext
-      
       if (parsed.edit) {
         displayFiles.push(file)
         seenBases.add(baseKey)
-      } else if (!seenBases.has(baseKey)) {
-        const hasEdit = files.some(f => {
-          const p = parseFilename(f.name)
-          return p.base === parsed.base && p.edit && p.ext === parsed.ext
-        })
-        if (!hasEdit) {
-          displayFiles.push(file)
-          seenBases.add(baseKey)
-        }
+      } else if (!seenBases.has(baseKey) && !editBases.has(baseKey)) {
+        displayFiles.push(file)
+        seenBases.add(baseKey)
       }
     }
-    
     return displayFiles
   }
 

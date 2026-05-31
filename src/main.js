@@ -22,31 +22,21 @@ registerPlugins(app)
 
 import { useAppStore } from '@/stores/app'
 
-const moduleNames = [
-  'specimen_photos_selector',
-  'taxa_photos_selector',
-  'symbiota_manager', // <-- update to new module name
-  'collection_healthcheck',
-]
+// New: static settings imports
+import spSettingsMod from '@/modules/specimen_photos_selector/settings.json'
+import taxaSettingsMod from '@/modules/taxa_photos_selector/settings.json'
+import symSettingsMod from '@/modules/symbiota_manager/settings.json'
+import hcSettingsMod from '@/modules/collection_healthcheck/settings.json'
 
-async function loadModules() {
-  const modules = []
-  for (const name of moduleNames) {
-    try {
-      const settings = await import(`@/modules/${name}/settings.json`)
-      modules.push({ name, ...settings })
-    } catch (e) {
-      const appStore = useAppStore()
-      appStore.setError(`Module "${name}" settings.json missing or malformed.`)
-      return []
-    }
-  }
-  return modules
-}
-
+// Removed dynamic import loop; build modules statically
 async function bootstrap() {
   const appStore = useAppStore()
-  const modules = await loadModules()
+  const modules = [
+    { name: 'specimen_photos_selector', ...((spSettingsMod?.default) ?? spSettingsMod) },
+    { name: 'taxa_photos_selector', ...((taxaSettingsMod?.default) ?? taxaSettingsMod) },
+    { name: 'symbiota_manager', ...((symSettingsMod?.default) ?? symSettingsMod) },
+    { name: 'collection_healthcheck', ...((hcSettingsMod?.default) ?? hcSettingsMod) },
+  ]
   appStore.setModules(modules)
   // Optionally, load data sources here in a similar way
   app.mount('#app')

@@ -24,6 +24,8 @@ export const useAppStore = defineStore('app', {
     modulesObj: {}, // Add for storing loaded module objects
     // New: force showing data sources per module (moduleName => true)
     forceDsForModule: {},
+    // Track which data sources are currently loading/processing
+    loadingDataSources: {},
   }),
   actions: {
     setModules (mods) {
@@ -79,6 +81,17 @@ export const useAppStore = defineStore('app', {
       const isOn = !!this.forceDsForModule?.[name]
       if (isOn) this.hideDataSourcesForModule(name)
       else this.showDataSourcesForModule(name)
+    },
+    // Mark a module as ready/not-ready. Modules should call this when their
+    // internal async initialization has completed so the loader can hide the
+    // intermediate spinner.
+    setModuleReady(name, isReady) {
+      if (!name) return
+      this.ready.modules = this.ready.modules || {}
+      this.ready.modules[name] = !!isReady
+    },
+    setDataSourceLoading(name, isLoading) {
+      this.loadingDataSources = { ...this.loadingDataSources, [name]: !!isLoading }
     },
   },
 })

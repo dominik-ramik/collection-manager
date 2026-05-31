@@ -83,7 +83,7 @@ import { useRoute } from 'vue-router'
 import DataSourcesButton from '@/components/DataSourcesButton.vue'
 const $route = useRoute()
 const appStore = useAppStore()
-const modules = appStore.modules
+const modules = computed(() => appStore.modules)
 const errorDialog = appStore.errorDialog
 const errorMessage = appStore.errorMessage
 
@@ -117,7 +117,7 @@ function onDrawerOutsideClick() {
 const currentModuleTitle = computed(() => {
   if ($route.path.startsWith('/module/')) {
     const modName = $route.params.name
-    const mod = modules.find(m => m.name === modName)
+    const mod = modules.value.find(m => m.name === modName)
     return mod ? mod.title : ''
   }
   return ''
@@ -127,7 +127,7 @@ const currentModuleTitle = computed(() => {
 const currentModuleObj = computed(() => {
   if ($route.path.startsWith('/module/')) {
     const modName = $route.params.name
-    const mod = modules.find(m => m.name === modName)
+    const mod = modules.value.find(m => m.name === modName)
     if (mod) {
       // Dynamically import the module index.js and return its default export
       // Defensive: If not loaded, return null

@@ -44,6 +44,7 @@ const isMemorized = computed(() => !!appStore.symbiota?.authenticated)
 async function fetchCollection() {
   error.value = ''
   loading.value = true
+  appStore.setDataSourceLoading?.('symbiota', true)
   // Only store credentials and mark data source as ready
   try {
     appStore.setSymbiotaToken({ user: username.value, pass: password.value })
@@ -52,6 +53,7 @@ async function fetchCollection() {
     error.value = e.message
   } finally {
     loading.value = false
+    appStore.setDataSourceLoading?.('symbiota', false)
   }
 }
 

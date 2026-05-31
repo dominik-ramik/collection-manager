@@ -62,6 +62,7 @@ import { taxaPhotosStore } from "./taxaPhotosStore";
 import { useAppStore } from "@/stores/app";
 import { parseFilename, hasTag } from "@/utils/tagging";
 import { getTaxonomyKey } from "@/utils/taxonomyMatcher";
+import { getCachedFiles } from "@/utils/folderFileCache";
 
 const appStore = useAppStore();
 
@@ -149,12 +150,8 @@ async function onExportClick() {
       const photos = [];
       // Iterate all folders that belong to this taxon
       for (const folder of taxEntry.folders || []) {
-        const files = [];
-        for await (const entry of folder.handle.values()) {
-          if (entry.kind === "file" && /\.(jpe?g)$/i.test(entry.name)) {
-            files.push({ name: entry.name, handle: entry });
-          }
-        }
+        // Use cached files instead of raw enumeration
+        const files = await getCachedFiles(folder.handle);
         // From all files, pick those tagged with 't'
         const tFiles = files.filter((f) => hasTag(f.name, "t"));
         // Group by base/ext to prefer edit

@@ -52,10 +52,12 @@
 </template>
 
 <script setup>
-import { onMounted, onActivated } from 'vue'
+import { onMounted, onActivated, onBeforeUnmount } from 'vue'
+import { useAppStore } from '@/stores/app'
 import { taxaPhotosStore } from './taxaPhotosStore'
 import ThumbnailGrid from '@/components/PhotoSelector/ThumbnailGrid.vue'
 import { toggleTagLetter, hasTag, propagateTagToEdit } from '@/utils/tagging'
+import { updateCachedFileName } from '@/utils/folderFileCache'
 
 const {
   selectedType,
@@ -65,9 +67,14 @@ const {
   snackbar,
   showSnackbar,
   taxonDisplayName,
-  computeAllTagCounts,
+  refreshTagCounts,
   refreshCurrentTaxonImages,
+  invalidateFolderCache,
+  updateFileInCache,
+  adjustTagCount,
 } = taxaPhotosStore
+
+const appStore = useAppStore()
 
 function getSpecimenLabel(img) {
   if (!img.specimenMeta) return ''
@@ -75,6 +82,7 @@ function getSpecimenLabel(img) {
   return `${initials}-${number}${accletter || ''}`
 }
 
+// Surgical rename: update cache in place, no full invalidation
 async function renameFileInFolder(folderHandle, oldName, newName) {
   const oldFileHandle = await folderHandle.getFileHandle(oldName)
   const file = await oldFileHandle.getFile()
@@ -84,16 +92,16 @@ async function renameFileInFolder(folderHandle, oldName, newName) {
   await writable.close()
   if (oldName !== newName) {
     await folderHandle.removeEntry(oldName)
+    updateCachedFileName(folderHandle, oldName, newName, newFileHandle)
   }
+  return newFileHandle
 }
 
 async function toggleTaxonTag(img) {
-  // Only allow toggling 't' tag on images that have 's' tag
   if (!hasTag(img.name, 's')) {
     return { selected: false, message: 'Only selected specimen images can be tagged for taxa', color: 'warning' }
   }
 
-  // Find the folder handle for this image
   const folder = selectedTaxon.value.folders.find(f =>
     f.specimenMeta.initials === img.specimenMeta.initials &&
     f.specimenMeta.number === img.specimenMeta.number &&
@@ -112,7 +120,7 @@ async function toggleTaxonTag(img) {
     await renameFileInFolder(folderHandle, oldName, newName)
     await propagateTagToEdit(folderHandle, newName, 't')
 
-    // Update the image in aggregatedImages array
+    // In-place update of the image in aggregatedImages
     const updatedFileHandle = await folderHandle.getFileHandle(newName)
     const updatedFile = await updatedFileHandle.getFile()
     const updatedImg = {
@@ -129,11 +137,15 @@ async function toggleTaxonTag(img) {
       (i.specimenMeta.accletter ?? '') === (img.specimenMeta.accletter ?? '')
     )
     if (idx !== -1) {
-      aggregatedImages.value[idx] = updatedImg
+      const newImages = [...aggregatedImages.value]
+      newImages[idx] = updatedImg
+      aggregatedImages.value = newImages
     }
 
-    // Recompute tag counts
-    await computeAllTagCounts()
+    // Incremental: adjust by ±1 instead of re-scanning all folders
+    const wasTagged = hasTag(oldName, 't')
+    adjustTagCount(selectedTaxon.value, 't', wasTagged ? -1 : 1)
+
     const selected = hasTag(newName, 't')
     return { selected, message: selected ? 'Image tagged for taxon' : 'Taxon tag removed', color: 'success' }
   } catch (e) {
@@ -141,14 +153,17 @@ async function toggleTaxonTag(img) {
   }
 }
 
-// Ensure chip counts and "Selected" overlays reflect current file tags on module switch
 onMounted(async () => {
-  await computeAllTagCounts()
+  await refreshTagCounts()
   await refreshCurrentTaxonImages()
+  appStore.setModuleReady?.('taxa_photos_selector', true)
 })
 onActivated(async () => {
-  await computeAllTagCounts()
+  await refreshTagCounts()
   await refreshCurrentTaxonImages()
+})
+onBeforeUnmount(() => {
+  appStore.setModuleReady?.('taxa_photos_selector', false)
 })
 </script>
 

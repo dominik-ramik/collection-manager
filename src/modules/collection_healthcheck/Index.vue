@@ -72,7 +72,7 @@
 </template>
 
 <script setup>
-import { reactive, computed, watch, onMounted, ref, nextTick } from 'vue'
+import { reactive, computed, watch, onMounted, ref, nextTick, onBeforeUnmount } from 'vue'
 import { useAppStore } from '@/stores/app'
 import SpecimenPhotosFoldersUnit from './units/SpecimenPhotosFolders/Unit.vue'
 import DeterminationConsistencyUnit from './units/DeterminationConsistency/Unit.vue'
@@ -171,6 +171,12 @@ onMounted(async () => {
   if (symbiotaReady.value && !symbiotaLoaded.value) {
     await fetchSymbiotaCollection()
   }
+  // Module initialization finished for the healthcheck UI
+  appStore.setModuleReady?.('collection_healthcheck', true)
+})
+
+onBeforeUnmount(() => {
+  appStore.setModuleReady?.('collection_healthcheck', false)
 })
 
 /* Global run button state + progress */

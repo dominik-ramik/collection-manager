@@ -89,8 +89,8 @@ import * as XLSX from 'xlsx'
 import { parseFilename, hasTag } from '@/utils/tagging'
 import { collectorShortNames } from '@/data_sources/field_notes/index.js'
 import { useAppStore } from '@/stores/app'
+import { getCachedFiles } from '@/utils/folderFileCache'
 
-// Use shared store for folder and images state
 const {
   matchedFolders,
 } = specimenPhotosStore
@@ -103,11 +103,9 @@ const exportDoneText = ref('')
 const showExportExcelDialog = ref(false)
 const exportExcelRows = ref([])
 
-// New: dialog for skipped specimens
 const showSkippedDialog = ref(false)
 const skippedSpecimens = ref([])
 
-// Use only the correct headers for Excel export
 const exportExcelHeaders = [
   'id',
   'collector.name',
@@ -124,7 +122,6 @@ function getCollectorFullName(initials) {
   return initials
 }
 function getScientificName(initials, number, accletter) {
-  // Use Pinia store instead of require()
   const appStore = useAppStore()
   const fieldNotes = appStore.fieldNotesData || []
   let collectorName = null
@@ -141,15 +138,10 @@ function getScientificName(initials, number, accletter) {
     ((item?.specimenNumber?.accletter ?? '') === (accletter ?? ''))
   )
   const tax = match?.taxonomy || {}
-  if (tax.subspecies) {
-    return `${tax.subspecies}`
-  } else if (tax.species) {
-    return `${tax.species}`
-  } else if (tax.family) {
-    return tax.family
-  } else if (tax.group) {
-    return tax.group
-  }
+  if (tax.subspecies) return `${tax.subspecies}`
+  else if (tax.species) return `${tax.species}`
+  else if (tax.family) return tax.family
+  else if (tax.group) return tax.group
   return null
 }
 
@@ -173,12 +165,8 @@ async function onExportClick() {
     const foldersWithSelected = []
     let totalFiles = 0
     for (const folder of folders) {
-      const files = []
-      for await (const entry of folder.handle.values()) {
-        if (entry.kind === 'file' && /\.(jpe?g)$/i.test(entry.name)) {
-          files.push({ name: entry.name, handle: entry })
-        }
-      }
+      // Use cached files instead of raw enumeration
+      const files = await getCachedFiles(folder.handle)
       const selectedCount = files.filter(f => hasTag(f.name, 's')).length
       if (selectedCount > 0) {
         foldersWithSelected.push({ ...folder, files })

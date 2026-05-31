@@ -29,20 +29,22 @@
         <v-list-item
           v-for="(item, idx) in displayedTaxa"
           :key="taxonKeyOf(item)"
-          :value="item"
+          :value="taxonKeyOf(item)"
           :active="taxonKeyOf(item) === selectedTaxonKey"
           :color="taxonKeyOf(item) === selectedTaxonKey ? 'primary' : undefined"
-          @click="selectTaxon(item)"
+          @click.stop="selectTaxon(item)"
           :data-item-key="taxonKeyOf(item)"
           tabindex="0"
-          @keydown="onListItemKeydown($event, idx)"
           style="cursor:pointer; position:relative;"
         >
-          <v-list-item-title
-            :style="{ color: getTagCount(item, 's') === 0 ? '#9e9e9e' : undefined }"
-          >
-            {{ speciesNameOf(item) }}
-          </v-list-item-title>
+          <v-list-item-content>
+            <v-list-item-title :style="{ color: getTagCount(item, 's') === 0 ? '#9e9e9e' : undefined }">
+              {{ speciesNameOf(item) }}
+            </v-list-item-title>
+            <v-list-item-subtitle v-if="familyOf(item)" style="font-size:0.70em; color:#777;">
+              {{ familyOf(item) }}
+            </v-list-item-subtitle>
+          </v-list-item-content>
           <template #append>
             <span v-if="getTagCount(item, 't') > 0"
               class="tag-count-badge"
@@ -61,7 +63,7 @@
 </template>
 
 <script setup>
-import { computed, ref, onMounted, onActivated } from 'vue'
+import { computed, ref, onMounted, onActivated, onBeforeUnmount } from 'vue'
 import { taxaPhotosStore } from './taxaPhotosStore'
 
 const {
@@ -73,12 +75,23 @@ const {
   onTypeChange,
   taxonKeyOf,
   aggregatedImages,
-  computeAllTagCounts,
+  refreshTagCounts,
 } = taxaPhotosStore
 
 // Refresh counts when module is entered/switched to
-onMounted(() => { computeAllTagCounts() })
-onActivated(() => { computeAllTagCounts() })
+onMounted(() => {
+  refreshTagCounts()
+  document.addEventListener('keydown', handleGlobalKeydown)
+})
+onActivated(() => {
+  refreshTagCounts()
+  // Re-register listener when module becomes active (in case it was removed)
+  document.removeEventListener('keydown', handleGlobalKeydown)
+  document.addEventListener('keydown', handleGlobalKeydown)
+})
+onBeforeUnmount(() => {
+  document.removeEventListener('keydown', handleGlobalKeydown)
+})
 
 const typeOptions = [
   { title: 'Photographed taxa', value: 'photographed' },
@@ -94,36 +107,36 @@ const displayedTaxa = computed(() => {
     : currentTaxaList.value
 })
 
-function onListItemKeydown(event, idx) {
-  if (event.key === 'Tab') {
-    event.preventDefault()
-    const items = document.querySelectorAll('[data-item-key]')
-    let nextIdx = idx
-    const step = event.shiftKey ? -1 : 1
-    let found = false
-    
-    // Navigate to next taxon with 0 t-tagged images but has at least one s-tagged image
-    if (!selectedTaxonKey.value || typeof idx !== 'number') {
-      for (let i = 0; i < currentTaxaList.value.length; i++) {
-        if (getTagCount(currentTaxaList.value[i], 't') === 0 && hasImages(currentTaxaList.value[i])) {
-          nextIdx = i
-          found = true
-          break
-        }
+function handleGlobalKeydown(event) {
+  if (event.key !== 'Tab') return
+  
+  event.preventDefault()
+  
+  // Use displayedTaxa instead of currentTaxaList to respect the filter
+  const currentIdx = selectedTaxonKey.value
+    ? displayedTaxa.value.findIndex(t => taxonKeyOf(t) === selectedTaxonKey.value)
+    : -1
+  
+  const step = event.shiftKey ? -1 : 1
+  let nextIdx = currentIdx
+  let found = false
+  
+  // Navigate to next taxon with 0 t-tagged images but has at least one folder
+  if (currentIdx === -1) {
+    for (let i = 0; i < displayedTaxa.value.length; i++) {
+      if (getTagCount(displayedTaxa.value[i], 't') === 0 && hasImages(displayedTaxa.value[i])) {
+        nextIdx = i
+        found = true
+        break
       }
-      if (found && items[nextIdx]) {
-        items[nextIdx].focus()
-        selectTaxon(currentTaxaList.value[nextIdx])
-      }
-      return
     }
-    
+  } else {
     for (
-      let i = idx + step;
-      event.shiftKey ? i >= 0 : i < currentTaxaList.value.length;
+      let i = currentIdx + step;
+      event.shiftKey ? i >= 0 : i < displayedTaxa.value.length;
       i += step
     ) {
-      if (getTagCount(currentTaxaList.value[i], 't') === 0 && hasImages(currentTaxaList.value[i])) {
+      if (getTagCount(displayedTaxa.value[i], 't') === 0 && hasImages(displayedTaxa.value[i])) {
         nextIdx = i
         found = true
         break
@@ -132,26 +145,28 @@ function onListItemKeydown(event, idx) {
     
     if (!found) {
       for (
-        let i = event.shiftKey ? currentTaxaList.value.length - 1 : 0;
-        event.shiftKey ? i < idx : i > idx;
+        let i = event.shiftKey ? displayedTaxa.value.length - 1 : 0;
+        event.shiftKey ? i < currentIdx : i > currentIdx;
         i += step
       ) {
-        if (getTagCount(currentTaxaList.value[i], 't') === 0 && hasImages(currentTaxaList.value[i])) {
+        if (getTagCount(displayedTaxa.value[i], 't') === 0 && hasImages(displayedTaxa.value[i])) {
           nextIdx = i
           found = true
           break
         }
       }
     }
-    
-    if (found && items[nextIdx]) {
-      event.target.blur?.()
-      items[nextIdx].focus()
-      selectTaxon(currentTaxaList.value[nextIdx])
+  }
+  
+  if (found && displayedTaxa.value[nextIdx]) {
+    selectTaxon(displayedTaxa.value[nextIdx])
+    const key = taxonKeyOf(displayedTaxa.value[nextIdx])
+    const listItem = document.querySelector(`[data-item-key="${CSS.escape(key)}"]`)
+    if (listItem) {
+      listItem.scrollIntoView({ block: 'nearest', behavior: 'smooth' })
+      // Focus the list item to match Specimen Photos Selector behavior
+      listItem.focus?.()
     }
-  } else if (event.key === 'Enter' || event.key === ' ') {
-    event.preventDefault()
-    selectTaxon(currentTaxaList.value[idx])
   }
 }
 
@@ -163,6 +178,11 @@ function hasImages(taxon) {
 function speciesNameOf(taxon) {
   const t = taxon?.taxonomy || taxon || {}
   return t.subspecies || t.species || 'Unknown species'
+}
+
+function familyOf(taxon) {
+  const t = taxon?.taxonomy || taxon || {}
+  return t.family || ''
 }
 </script>
 

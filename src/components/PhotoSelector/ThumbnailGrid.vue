@@ -47,6 +47,21 @@
           <strong>{{ taxonomy.subspecies || taxonomy.species || 'Species not specified' }}</strong>
         </v-chip>
       </v-toolbar-items>
+      <v-toolbar-items v-if="currentFolderPath" class="ml-2">
+        <!-- Current folder path chip -->
+        <v-chip
+          :class="['path-chip', 'px-3', 'py-1', 'd-flex', 'align-center', headerChipClass]"
+          label
+          :size="headerChipSize"
+          :color="headerChipColor"
+          :variant="headerChipVariant"
+          prepend-icon="mdi-folder"
+        >
+          <span style="font-family:monospace; font-size:0.9em; color:rgba(0,0,0,0.8); word-break:break-all;">
+            {{ currentFolderPath }}
+          </span>
+        </v-chip>
+      </v-toolbar-items>
     </v-toolbar>
 
     <div v-if="loading" class="mt-4">
@@ -184,6 +199,8 @@ const props = defineProps({
   filterDefaultTaggedOnly: { type: Boolean, default: false },
   // Optional taxonomy info to show on the right of the switch
   taxonomy: { type: Object, default: null },
+  // Current folder full path (string) — shown in toolbar next to taxonomy
+  currentFolderPath: { type: String, default: '' },
   // Header chip styling (applied to BOTH switch chip and taxon chip)
   headerChipColor: { type: String, default: 'primary' },
   headerChipVariant: { type: String, default: 'tonal' },

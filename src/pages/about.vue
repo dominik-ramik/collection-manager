@@ -5,6 +5,11 @@
         <h1 class="about-title" style="text-align:center;">About Collection Manager</h1>
         <v-card class="about-card mb-6" elevation="2">
           <v-card-text>
+            <!-- Insert version before the first paragraph -->
+            <div style="text-align:center; margin-bottom:0.8em; color:rgba(0,0,0,0.65); font-size:0.95em;">
+              Version {{ version }}
+            </div>
+
             <p class="about-paragraph">
               <strong>Collection Manager</strong> is a specialized software tool developed for the
               <a href="https://pvnh.net/plants-and-people-of-vanuatu/" target="_blank" rel="noopener" class="about-link">
@@ -28,6 +33,11 @@
     </v-row>
   </v-container>
 </template>
+
+<script setup>
+import pkg from '../../package.json'
+const version = pkg?.version || '?.?.?'
+</script>
 
 <style scoped>
 .about-container {

@@ -1,3 +1,22 @@
+const PARSE_CACHE_MAX = 5000
+const parseCache = new Map()
+
+function getCachedParsed(filename) {
+  const cached = parseCache.get(filename)
+  if (!cached) return null
+  parseCache.delete(filename)
+  parseCache.set(filename, cached)
+  return { ...cached }
+}
+
+function setCachedParsed(filename, parsed) {
+  parseCache.set(filename, parsed)
+  if (parseCache.size > PARSE_CACHE_MAX) {
+    const oldestKey = parseCache.keys().next().value
+    parseCache.delete(oldestKey)
+  }
+}
+
 /**
  * Parse filename into { base, tag, edit, ext }
  * - base: filename without tagging area, " edit", or extension
@@ -6,6 +25,9 @@
  * - ext: file extension (with dot)
  */
 export function parseFilename(filename) {
+  const cached = getCachedParsed(filename)
+  if (cached) return cached
+
   const extMatch = filename.match(/(\.[^.]+)$/)
   const ext = extMatch ? extMatch[1] : ''
   let name = ext ? filename.slice(0, -ext.length) : filename
@@ -23,7 +45,9 @@ export function parseFilename(filename) {
     name = name.slice(0, -tagMatch[0].length)
   }
 
-  return { base: name, tag, edit, ext }
+  const parsed = { base: name, tag, edit, ext }
+  setCachedParsed(filename, parsed)
+  return { ...parsed }
 }
 
 /**
@@ -182,6 +206,31 @@ export function countTaggedFiles(files, tagLetter) {
 }
 
 /**
+ * Count unique files tagged with each of the given letters in a single pass.
+ * Returns an object like { s: 3, t: 1 }.
+ * Treats "edit" and non-edit versions as one (count only once per base/ext).
+ */
+export function countTaggedFilesMulti(files, tagLetters) {
+  const counts = {}
+  for (const letter of tagLetters) counts[letter] = 0
+
+  const seenPerLetter = {}
+  for (const letter of tagLetters) seenPerLetter[letter] = new Set()
+
+  for (const f of files) {
+    const parsed = parseFilename(f.name)
+    const key = parsed.base + parsed.ext
+    for (const letter of tagLetters) {
+      if (parsed.tag.includes(letter) && !seenPerLetter[letter].has(key)) {
+        seenPerLetter[letter].add(key)
+        counts[letter]++
+      }
+    }
+  }
+  return counts
+}
+
+/**
  * Check if file has both specified tags
  */
 export function hasBothTags(filename, tag1, tag2) {
@@ -219,32 +268,27 @@ export function addTag(filename, tagLetter) {
  * Ensure edit file has same tag as original
  */
 export async function propagateTagToEdit(folderHandle, originalName, tagLetter) {
+  const { getCachedFiles, invalidateFolder } = await import('@/utils/folderFileCache')
   const parsed = parseFilename(originalName)
-  const editName = `${parsed.base} edit${parsed.ext}`
-  
+
   try {
-    // Check if edit file exists
-    const entries = []
-    for await (const entry of folderHandle.values()) {
-      if (entry.kind === 'file') {
-        entries.push(entry)
-      }
-    }
-    
+    // Use cached file listing instead of raw enumeration
+    const entries = await getCachedFiles(folderHandle)
+
     const editEntry = entries.find(e => {
       const p = parseFilename(e.name)
       return p.base === parsed.base && p.edit && p.ext === parsed.ext
     })
-    
+
     if (!editEntry) return // Edit file doesn't exist
-    
+
     const hasTagInOriginal = hasTag(originalName, tagLetter)
     const hasTagInEdit = hasTag(editEntry.name, tagLetter)
-    
+
     if (hasTagInOriginal && !hasTagInEdit) {
       // Add tag to edit
       const newEditName = addTag(editEntry.name, tagLetter)
-      const editFile = await editEntry.getFile()
+      const editFile = await editEntry.handle.getFile()
       const newHandle = await folderHandle.getFileHandle(newEditName, { create: true })
       const writable = await newHandle.createWritable()
       await writable.write(await editFile.arrayBuffer())
@@ -252,10 +296,12 @@ export async function propagateTagToEdit(folderHandle, originalName, tagLetter) 
       if (editEntry.name !== newEditName) {
         await folderHandle.removeEntry(editEntry.name)
       }
+      // Invalidate cache after modification
+      invalidateFolder(folderHandle)
     } else if (!hasTagInOriginal && hasTagInEdit) {
       // Remove tag from edit
       const newEditName = removeTag(editEntry.name, tagLetter)
-      const editFile = await editEntry.getFile()
+      const editFile = await editEntry.handle.getFile()
       const newHandle = await folderHandle.getFileHandle(newEditName, { create: true })
       const writable = await newHandle.createWritable()
       await writable.write(await editFile.arrayBuffer())
@@ -263,6 +309,8 @@ export async function propagateTagToEdit(folderHandle, originalName, tagLetter) 
       if (editEntry.name !== newEditName) {
         await folderHandle.removeEntry(editEntry.name)
       }
+      // Invalidate cache after modification
+      invalidateFolder(folderHandle)
     }
   } catch (e) {
     console.error('Failed to propagate tag to edit file:', e)
