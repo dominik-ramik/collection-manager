@@ -63,7 +63,7 @@
           height="100%"
           :cover="false"
           style="object-fit:contain;"
-          ref="imgRefs"
+          :ref="el => { if (el?.$el) imgRefMap.set(img.name, el.$el); else imgRefMap.delete(img.name) }"
         />
       </div>
       <!-- Spacer after last thumbnail -->
@@ -97,10 +97,12 @@
 </template>
 <script setup>
 import { hasTag, isEditFile } from '@/utils/tagging'
-import { ref, reactive, computed, nextTick, watch } from 'vue'
+import { ref, reactive, computed, watch } from 'vue'
 const props = defineProps(['images', 'loading', 'matchedTaxon', 'selectedType'])
 
-const imgRefs = ref([])
+const imgRefMap = new Map()
+
+watch(() => props.images, () => imgRefMap.clear())
 
 const magnifier = reactive({
   visible: false,
@@ -124,20 +126,20 @@ const MAG_RADIUS = MAG_SIZE / 2
 const MAG_PADDING = 16
 const SCALE = 0.5
 
+let rafPending = false
+
 function onThumbnailMouseMove(e, idx, img) {
-  lastHoveredIdx = idx
-  updateMagnifier(e, idx, img)
+  if (rafPending) return
+  rafPending = true
+  requestAnimationFrame(() => {
+    rafPending = false
+    lastHoveredIdx = idx
+    updateMagnifier(e, idx, img)
+  })
 }
 
 function updateMagnifier(e, idx, img) {
-  // Defensive: always get the latest ref for the hovered thumbnail
-  // Fix: always use the latest images array and idx, do not rely on stale refs
-  // If the image was replaced (e.g. after tagging), get the ref by name
-  let vImgWrapper = imgRefs.value[idx]?.$el
-  // If the ref is missing or not matching the image name, search for the correct ref by name
-  if (!vImgWrapper || !isImgRefMatching(vImgWrapper, img)) {
-    vImgWrapper = findImgRefByName(img.name)
-  }
+  const vImgWrapper = imgRefMap.get(img.name)
   if (!vImgWrapper) return
   const realImg = vImgWrapper.querySelector('img')
   if (!realImg || !realImg.complete) return
@@ -163,28 +165,6 @@ function updateMagnifier(e, idx, img) {
   magnifier.offsetY = offsetY
   magnifier.offsetXScaled = offsetX * SCALE
   magnifier.offsetYScaled = offsetY * SCALE
-}
-
-// Helper: check if the ref matches the image name
-function isImgRefMatching(vImgWrapper, img) {
-  // Defensive: check if the ref's <img> src matches the image url
-  const realImg = vImgWrapper.querySelector('img')
-  if (!realImg) return false
-  // Compare src and alt
-  return realImg.src === img.url && realImg.alt === img.name
-}
-
-// Helper: find the correct ref by image name
-function findImgRefByName(name) {
-  for (const refObj of imgRefs.value) {
-    const vImgWrapper = refObj?.$el
-    if (!vImgWrapper) continue
-    const realImg = vImgWrapper.querySelector('img')
-    if (realImg && realImg.alt === name) {
-      return vImgWrapper
-    }
-  }
-  return null
 }
 
 function onImgMouseLeave() {

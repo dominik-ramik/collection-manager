@@ -70,6 +70,44 @@ function sameAccletter(a, b) { return norm(a) === norm(b) } // '' === undefined
 function sameNumber(a, b) { return norm(a) === norm(b) }
 function sameInitials(a, b) { return norm(a).toUpperCase() === norm(b).toUpperCase() }
 
+// Shared sort comparator
+function sortByTaxonomy(a, b) {
+  const t1 = a.taxonomy || a
+  const t2 = b.taxonomy || b
+  if ((t1.group || '') !== (t2.group || '')) return (t1.group || '').localeCompare(t2.group || '')
+  if ((t1.family || '') !== (t2.family || '')) return (t1.family || '').localeCompare(t2.family || '')
+  if ((t1.species || '') !== (t2.species || '')) return (t1.species || '').localeCompare(t2.species || '')
+  return (t1.subspecies || '').localeCompare(t2.subspecies || '')
+}
+
+// Pre-group field notes by taxonomy key — O(N) one-time cost
+function groupFieldNotesByTaxKey(fieldNotes) {
+  const map = new Map()
+  for (const fn of fieldNotes) {
+    if (!fn?.taxonomy) continue
+    const key = getTaxonomyKey(fn.taxonomy)
+    if (!map.has(key)) map.set(key, [])
+    map.get(key).push(fn)
+  }
+  return map
+}
+
+// Pre-index folders by specimen composite key — O(F) one-time cost
+function indexFoldersBySpecimen(folders) {
+  const map = new Map()
+  for (const f of folders) {
+    if (!f?.specimenMeta || !f.hasImages) continue
+    const key = [
+      norm(f.specimenMeta.initials).toUpperCase(),
+      norm(f.specimenMeta.number),
+      norm(f.specimenMeta.accletter),
+    ].join('|')
+    if (!map.has(key)) map.set(key, [])
+    map.get(key).push(f)
+  }
+  return map
+}
+
 /**
  * Build simple photographed specimens list:
  * Array of { specimenNumber, taxonomy, folders: [{folderName, fullPath, handle, hasImages}] }
@@ -78,71 +116,61 @@ function sameInitials(a, b) { return norm(a).toUpperCase() === norm(b).toUpperCa
  * 2) for each matching field-notes entry, find folders by initials+number+accletter ('' == undefined), hasImages=true
  */
 export function buildPhotographedSpecimens(checklistData, fieldNotesData, matchedFolders, collectorShortNames) {
-    const checklistTaxa = (checklistData || []).map(x => x.taxonomy || x)
-    const fieldNotes = fieldNotesData || []
-    const folders = matchedFolders || []
+  const fieldNotes = fieldNotesData || []
+  const folders = matchedFolders || []
 
-    // Step 1: find checklist taxa present in field notes by taxonomy key
-    const fnTaxKeys = new Set(fieldNotes
-        .filter(fn => fn?.taxonomy)
-        .map(fn => getTaxonomyKey(fn.taxonomy))
-    )
+  // Pre-index both sides — O(N) + O(F)
+  const fnByTaxKey = groupFieldNotesByTaxKey(fieldNotes)
+  const foldersBySpecimen = indexFoldersBySpecimen(folders)
 
-    const presentChecklistTaxa = checklistTaxa.filter(t => fnTaxKeys.has(getTaxonomyKey(t)))
+  const checklistTaxa = (checklistData || []).map(x => x.taxonomy || x)
 
-    // Step 2: for each present checklist taxon, list all matching field notes entries and their folders
-    const result = []
+  // Pre-compute taxonomy key set for filtering — O(T)
+  const fnTaxKeys = new Set(fnByTaxKey.keys())
+  const presentChecklistTaxa = checklistTaxa.filter(t => fnTaxKeys.has(getTaxonomyKey(t)))
 
-    for (const taxon of presentChecklistTaxa) {
-        const taxKey = getTaxonomyKey(taxon)
-        const matchingFn = fieldNotes.filter(fn => fn?.taxonomy && getTaxonomyKey(fn.taxonomy) === taxKey)
+  const result = []
 
-        for (const fnEntry of matchingFn) {
-            const sn = fnEntry.specimenNumber || {}
-            // Prefer initials provided in field notes; fallback to name mapping if missing
-            const initials = norm(sn.initials) || norm(collectorShortNames?.[sn.name])
-            const number = sn.number
-            const accletter = sn.accletter
+  for (const taxon of presentChecklistTaxa) {
+    const taxKey = getTaxonomyKey(taxon)
+    const matchingFn = fnByTaxKey.get(taxKey) || []
 
-            // Find matching folders (can be 0..n)
-            const matched = folders.filter(f =>
-                f?.specimenMeta &&
-                f.hasImages &&
-                sameInitials(f.specimenMeta.initials, initials) &&
-                sameNumber(f.specimenMeta.number, number) &&
-                sameAccletter(f.specimenMeta.accletter, accletter)
-            ).map(f => ({
-                folderName: f.folderName,
-                fullPath: f.fullPath,
-                handle: f.handle,
-                hasImages: !!f.hasImages,
-            }))
+    for (const fnEntry of matchingFn) {
+      const sn = fnEntry.specimenNumber || {}
+      const initials = norm(sn.initials) || norm(collectorShortNames?.[sn.name])
+      const specimenKey = [
+        norm(initials).toUpperCase(),
+        norm(sn.number),
+        norm(sn.accletter),
+      ].join('|')
 
-            result.push({
-                specimenNumber: {
-                    name: sn.name || '',
-                    initials,
-                    number,
-                    accletter: norm(accletter), // normalize '' for consistency
-                },
-                taxonomy: taxon,
-                folders: matched,
-            })
-        }
+      const matched = (foldersBySpecimen.get(specimenKey) || []).map(f => ({
+        folderName: f.folderName,
+        fullPath: f.fullPath,
+        handle: f.handle,
+        hasImages: !!f.hasImages,
+      }))
+
+      result.push({
+        specimenNumber: {
+          name: sn.name || '',
+          initials,
+          number: sn.number,
+          accletter: norm(sn.accletter),
+        },
+        taxonomy: taxon,
+        folders: matched,
+      })
     }
+  }
 
-    // Sort stable by taxonomy then specimen number
-    result.sort((a, b) => {
-        const t1 = a.taxonomy || {}
-        const t2 = b.taxonomy || {}
-        if ((t1.group || '') !== (t2.group || '')) return (t1.group || '').localeCompare(t2.group || '')
-        if ((t1.family || '') !== (t2.family || '')) return (t1.family || '').localeCompare(t2.family || '')
-        if ((t1.species || '') !== (t2.species || '')) return (t1.species || '').localeCompare(t2.species || '')
-        if ((t1.subspecies || '') !== (t2.subspecies || '')) return (t1.subspecies || '').localeCompare(t2.subspecies || '')
-        return String(a.specimenNumber?.number || '').localeCompare(String(b.specimenNumber?.number || ''))
-    })
+  result.sort((a, b) => {
+    const st = sortByTaxonomy(a, b)
+    if (st !== 0) return st
+    return String(a.specimenNumber?.number || '').localeCompare(String(b.specimenNumber?.number || ''))
+  })
 
-    return result
+  return result
 }
 
 /**
@@ -152,65 +180,51 @@ export function buildPhotographedSpecimens(checklistData, fieldNotesData, matche
  * - Aggregate unique folders per checklist taxon; include only taxa that have at least one matching folder
  */
 export function buildPhotographedTaxa(checklistData, fieldNotesData, matchedFolders, collectorShortNames) {
-    const checklistTaxa = (checklistData || []).map(x => x.taxonomy || x)
-    const fieldNotes = fieldNotesData || []
-    const folders = matchedFolders || []
+  const fieldNotes = fieldNotesData || []
+  const folders = matchedFolders || []
 
-    // 1) Find checklist taxa present in field notes
-    const fnTaxKeys = new Set(
-        fieldNotes.filter(fn => fn?.taxonomy).map(fn => getTaxonomyKey(fn.taxonomy))
-    )
-    const presentChecklistTaxa = checklistTaxa.filter(t => fnTaxKeys.has(getTaxonomyKey(t)))
+  // Pre-index both sides — O(N) + O(F), done once
+  const fnByTaxKey = groupFieldNotesByTaxKey(fieldNotes)
+  const foldersBySpecimen = indexFoldersBySpecimen(folders)
 
+  const checklistTaxa = (checklistData || []).map(x => x.taxonomy || x)
+  const result = []
 
-    // 2) For each present taxon, collect folders from all matching field-notes entries
-    const result = []
-    for (const taxon of presentChecklistTaxa) {
-        const taxKey = getTaxonomyKey(taxon)
-        const matchingFn = fieldNotes.filter(fn => fn?.taxonomy && getTaxonomyKey(fn.taxonomy) === taxKey)
+  for (const taxon of checklistTaxa) {
+    const taxKey = getTaxonomyKey(taxon)          // computed once per taxon
+    const matchingFn = fnByTaxKey.get(taxKey)
+    if (!matchingFn) continue
 
-        const uniqFolders = []
-        const seen = new Set()
+    const seen = new Set()
+    const uniqFolders = []
 
-        for (const fnEntry of matchingFn) {
-            const sn = fnEntry.specimenNumber || {}
-            // Prefer initials from field notes; fallback to name mapping
-            const initials = norm(sn.initials) || norm(collectorShortNames?.[sn.name])
-            const number = sn.number
-            const accletter = sn.accletter
+    for (const fnEntry of matchingFn) {
+      const sn = fnEntry.specimenNumber || {}
+      const initials = norm(sn.initials) || norm(collectorShortNames?.[sn.name])
+      const specimenKey = [
+        norm(initials).toUpperCase(),
+        norm(sn.number),
+        norm(sn.accletter),
+      ].join('|')
 
-            for (const f of folders) {
-                if (!f?.specimenMeta || !f.hasImages) continue
-                if (
-                    sameInitials(f.specimenMeta.initials, initials) &&
-                    sameNumber(f.specimenMeta.number, number) &&
-                    sameAccletter(f.specimenMeta.accletter, accletter)
-                ) {
-                    const id = f.fullPath || f.folderName
-                    if (!seen.has(id)) {
-                        seen.add(id)
-                        uniqFolders.push(f)
-                    }
-                }
-            }
+      for (const f of (foldersBySpecimen.get(specimenKey) || [])) {
+        const id = f.fullPath || f.folderName
+        if (!seen.has(id)) {
+          seen.add(id)
+          uniqFolders.push({
+            folderName: f.folderName,
+            fullPath: f.fullPath,
+            handle: f.handle,
+            hasImages: !!f.hasImages,
+          })
         }
-
-        if (uniqFolders.length) {
-            result.push({ taxonomy: taxon, folders: uniqFolders })
-        }
+      }
     }
 
-    // 3) Sort
-    const sortFn = (a, b) => {
-        const t1 = a.taxonomy || a
-        const t2 = b.taxonomy || b
-        if ((t1.group || '') !== (t2.group || '')) return (t1.group || '').localeCompare(t2.group || '')
-        if ((t1.family || '') !== (t2.family || '')) return (t1.family || '').localeCompare(t2.family || '')
-        if ((t1.species || '') !== (t2.species || '')) return (t1.species || '').localeCompare(t2.species || '')
-        return (t1.subspecies || '').localeCompare(t2.subspecies || '')
+    if (uniqFolders.length) {
+      result.push({ taxonomy: taxon, folders: uniqFolders })
     }
+  }
 
-    console.log(result)
-
-    return result.sort(sortFn)
+  return result.sort(sortByTaxonomy)
 }

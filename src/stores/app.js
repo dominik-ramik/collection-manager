@@ -68,13 +68,11 @@ export const useAppStore = defineStore('app', {
     // New: helpers to control data source UI per module
     showDataSourcesForModule (name) {
       if (!name) return
-      this.forceDsForModule = { ...this.forceDsForModule, [name]: true }
+      this.forceDsForModule[name] = true
     },
     hideDataSourcesForModule (name) {
       if (!name) return
-      const next = { ...this.forceDsForModule }
-      delete next[name]
-      this.forceDsForModule = next
+      delete this.forceDsForModule[name]
     },
     toggleDataSourcesForModule (name) {
       if (!name) return
@@ -91,7 +89,8 @@ export const useAppStore = defineStore('app', {
       this.ready.modules[name] = !!isReady
     },
     setDataSourceLoading(name, isLoading) {
-      this.loadingDataSources = { ...this.loadingDataSources, [name]: !!isLoading }
+      if (!name) return
+      this.loadingDataSources[name] = !!isLoading
     },
   },
 })

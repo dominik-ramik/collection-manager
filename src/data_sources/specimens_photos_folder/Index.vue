@@ -56,7 +56,7 @@ async function findMatchingFolders(folderHandle, regex) {
   async function folderHasImages(folderHandle) {
     try {
       for await (const entry of folderHandle.values()) {
-        if (entry.kind === 'file' && /\.(jpe?g)$/i.test(entry.name)) {
+        if (entry.kind === 'file' && !entry.name.startsWith('._') && /\.(jpe?g)$/i.test(entry.name)) {
           return true
         }
       }

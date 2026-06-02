@@ -12,23 +12,29 @@ import {
  *
  * Key design decisions
  * ────────────────────
- * 1.  **Lazy blob URLs** – Object URLs are only created when a folder is
- *     selected, and immediately revoked when switching away.
+ * 1.  **Eager ArrayBuffer blobs** – File bytes are read into RAM before
+ *     createObjectURL so the browser paints without a FSAA round-trip
+ *     at render time.
  *
- * 2.  **Incremental tag counts** – After a tag toggle we adjust the
+ * 2.  **Look-ahead precache** – After selecting a folder the next
+ *     PRECACHE_AHEAD folders are loaded in the background so sequential
+ *     navigation is nearly instant.  Memory is bounded to
+ *     (1 active + PRECACHE_AHEAD) folders; stale entries are revoked.
+ *
+ * 3.  **Incremental tag counts** – After a tag toggle we adjust the
  *     affected folder's count by ±1 instead of re-scanning all files.
  *     Full re-scans only happen on initial load or cache invalidation.
  *
- * 3.  **Single-pass display-file selection** – `buildDisplayFiles` runs
+ * 4.  **Single-pass display-file selection** – `buildDisplayFiles` runs
  *     one O(n) pass using a pre-built Set of edit bases.
  *
- * 4.  **In-place image updates** – On tag toggle the single changed
+ * 5.  **In-place image updates** – On tag toggle the single changed
  *     entry in `images` is replaced directly by index.
  *
- * 5.  **Abort controller** – Rapid folder switching cancels in-flight
+ * 6.  **Abort controller** – Rapid folder switching cancels in-flight
  *     loads so we never do redundant work.
  *
- * 6.  **No redundant cache invalidation on rename** – Tag toggles only
+ * 7.  **No redundant cache invalidation on rename** – Tag toggles only
  *     update the cached entry via `updateCachedFileName`.  Full
  *     invalidation is reserved for add / remove operations.
  */
@@ -60,6 +66,13 @@ export function useSpecimenPhotos() {
   // ── internals ────────────────────────────────────────────────────────
   let activeObjectUrls = []
   let _selectAbort = null
+  let _tagCountsTimestamp = 0   // ms since epoch of last completed full tag-count load
+  let _tagCountsLoading = false // prevents concurrent computeAllTagCounts runs
+
+  // ── image precache ────────────────────────────────────────────────────
+  const _precache = new Map()       // folderKey → { images, urls }  (resolved)
+  const _precacheAborts = new Map() // folderKey → AbortController   (in-flight)
+  const PRECACHE_AHEAD = 3
 
   // ── helpers ──────────────────────────────────────────────────────────
   function folderKeyOf(folder) {
@@ -75,6 +88,84 @@ export function useSpecimenPhotos() {
       try { URL.revokeObjectURL(url) } catch { /* ignore */ }
     }
     activeObjectUrls = []
+  }
+
+  function _revokePrecacheEntry(key) {
+    const entry = _precache.get(key)
+    if (entry) {
+      for (const u of entry.urls) try { URL.revokeObjectURL(u) } catch {}
+      _precache.delete(key)
+    }
+    const ctrl = _precacheAborts.get(key)
+    if (ctrl) { ctrl.abort(); _precacheAborts.delete(key) }
+  }
+
+  function _clearPrecache() {
+    for (const key of [..._precache.keys()]) _revokePrecacheEntry(key)
+    for (const [key, ctrl] of [..._precacheAborts.entries()]) {
+      ctrl.abort(); _precacheAborts.delete(key)
+    }
+  }
+
+  // Load all images for a folder into RAM blobs; returns { images, urls } or null
+  async function _loadImagesForFolder(item, signal) {
+    try {
+      const allFiles = await getCachedFiles(item.handle)
+      if (signal?.aborted) return null
+      const displayFiles = buildDisplayFiles(allFiles)
+      if (signal?.aborted) return null
+      const urls = []
+      const images = []
+      const BATCH = 24
+      for (let i = 0; i < displayFiles.length; i += BATCH) {
+        if (signal?.aborted) {
+          for (const u of urls) try { URL.revokeObjectURL(u) } catch {}
+          return null
+        }
+        const batch = displayFiles.slice(i, i + BATCH)
+        const loaded = await Promise.all(batch.map(async (entry) => {
+          const file = await entry.handle.getFile()
+          const buf = await file.arrayBuffer()
+          const blob = new Blob([buf], { type: file.type || 'image/jpeg' })
+          const url = URL.createObjectURL(blob)
+          return { name: entry.name, url, handle: entry.handle }
+        }))
+        if (signal?.aborted) {
+          for (const img of loaded) try { URL.revokeObjectURL(img.url) } catch {}
+          for (const u of urls) try { URL.revokeObjectURL(u) } catch {}
+          return null
+        }
+        for (const img of loaded) { urls.push(img.url); images.push(img) }
+      }
+      return { images, urls }
+    } catch {
+      return null
+    }
+  }
+
+  function _precacheNextFolders(currentItem) {
+    const list = sortedFolders.value
+    const idx = list.findIndex(f => folderKeyOf(f) === folderKeyOf(currentItem))
+    const wantedKeys = new Set()
+    for (let i = idx + 1; i <= idx + PRECACHE_AHEAD && i < list.length; i++) {
+      wantedKeys.add(folderKeyOf(list[i]))
+    }
+    // Evict entries outside the look-ahead window
+    for (const key of [..._precache.keys(), ..._precacheAborts.keys()]) {
+      if (!wantedKeys.has(key)) _revokePrecacheEntry(key)
+    }
+    // Start background loads for not-yet-cached entries
+    for (let i = idx + 1; i <= idx + PRECACHE_AHEAD && i < list.length; i++) {
+      const folder = list[i]
+      const key = folderKeyOf(folder)
+      if (_precache.has(key) || _precacheAborts.has(key)) continue
+      const ctrl = new AbortController()
+      _precacheAborts.set(key, ctrl)
+      _loadImagesForFolder(folder, ctrl.signal).then(result => {
+        _precacheAborts.delete(key)
+        if (result) _precache.set(key, result)
+      })
+    }
   }
 
   // ── display-file selection (single-pass) ─────────────────────────────
@@ -106,7 +197,7 @@ export function useSpecimenPhotos() {
   // ── tag count computation ────────────────────────────────────────────
 
   async function computeAllTagCounts(foldersArr) {
-    const BATCH = 16
+    const BATCH = 48  // 3× more parallel I/O per round vs. previous 16
     const out = {}
     for (let i = 0; i < foldersArr.length; i += BATCH) {
       const batch = foldersArr.slice(i, i + BATCH)
@@ -115,8 +206,10 @@ export function useSpecimenPhotos() {
         return { key: folderKeyOf(f), counts: countTaggedFilesMulti(files, ['s']) }
       }))
       for (const { key, counts } of results) out[key] = counts
+      // Update reactively after each batch so the sidebar shows counts progressively
+      tagCounts.value = { ...out }
     }
-    tagCounts.value = out
+    _tagCountsTimestamp = Date.now()
   }
 
   function getTagCount(folder, letter) {
@@ -151,6 +244,9 @@ export function useSpecimenPhotos() {
     () => appStore.specimensPhotosFolderResult,
     async (res) => {
       if (!res) return
+      // Reset timestamp so the forced watcher re-scan runs even if data was recently fresh
+      _tagCountsTimestamp = 0
+      _tagCountsLoading = false
       const all = [...(res.matching || []), ...(res.nonmatching || [])].filter(f => f.hasImages)
       await computeAllTagCounts(all)
     },
@@ -163,6 +259,7 @@ export function useSpecimenPhotos() {
     selectedFolder.value = null
     selectedFolderKey.value = null
     revokeActiveUrls()
+    _clearPrecache()
     images.value = []
   }
 
@@ -170,6 +267,7 @@ export function useSpecimenPhotos() {
     selectedFolder.value = null
     selectedFolderKey.value = null
     revokeActiveUrls()
+    _clearPrecache()
     images.value = []
   })
 
@@ -180,12 +278,32 @@ export function useSpecimenPhotos() {
     const ctrl = new AbortController()
     _selectAbort = ctrl
 
+    const key = folderKeyOf(item)
+    // Abort any in-flight precache for this key (we'll load it ourselves)
+    const precacheCtrl = _precacheAborts.get(key)
+    if (precacheCtrl) { precacheCtrl.abort(); _precacheAborts.delete(key) }
+
     selectedFolder.value = item
-    selectedFolderKey.value = folderKeyOf(item)
+    selectedFolderKey.value = key
     revokeActiveUrls()
     images.value = []
-    loadingImages.value = true
 
+    // ── Precache hit: instant display ──────────────────────────────────
+    const cached = _precache.get(key)
+    if (cached) {
+      _precache.delete(key)
+      activeObjectUrls = cached.urls
+      images.value = cached.images
+      loadingImages.value = false
+      _precacheNextFolders(item)
+      await Promise.resolve()
+      const el = document.querySelector(`[data-folder-key="${CSS.escape(key)}"]`)
+      if (el) { el.scrollIntoView({ block: 'nearest', behavior: 'smooth' }); el.focus?.() }
+      return
+    }
+
+    // ── Cache miss: progressive load ───────────────────────────────────
+    loadingImages.value = true
     await new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r)))
     if (ctrl.signal.aborted) return
 
@@ -197,25 +315,33 @@ export function useSpecimenPhotos() {
       if (ctrl.signal.aborted) return
 
       const BATCH = 24
-      const result = []
+      // Pre-allocate the result array to avoid repeated spreads during progressive loading
+      const allLoaded = new Array(displayFiles.length)
+      let firstBatch = true
       for (let i = 0; i < displayFiles.length; i += BATCH) {
         if (ctrl.signal.aborted) return
         const batch = displayFiles.slice(i, i + BATCH)
         const loaded = await Promise.all(batch.map(async (entry) => {
           const file = await entry.handle.getFile()
-          const url = URL.createObjectURL(file)
+          const buf = await file.arrayBuffer()
+          const blob = new Blob([buf], { type: file.type || 'image/jpeg' })
+          const url = URL.createObjectURL(blob)
           activeObjectUrls.push(url)
           return { name: entry.name, url, handle: entry.handle }
         }))
-        result.push(...loaded)
+        if (ctrl.signal.aborted) return
+        for (let j = 0; j < loaded.length; j++) allLoaded[i + j] = loaded[j]
+        // Assign a fresh slice so shallowRef triggers reactivity for progressive display
+        images.value = allLoaded.slice(0, i + loaded.length)
+        // Clear the spinner after the first visible batch so images appear immediately
+        if (firstBatch) { loadingImages.value = false; firstBatch = false }
       }
 
       if (ctrl.signal.aborted) return
-      images.value = result.sort((a, b) => a.name.localeCompare(b.name))
-
       await Promise.resolve()
-      const el = document.querySelector(`[data-folder-key="${CSS.escape(folderKeyOf(item))}"]`)
+      const el = document.querySelector(`[data-folder-key="${CSS.escape(key)}"]`)
       if (el) { el.scrollIntoView({ block: 'nearest', behavior: 'smooth' }); el.focus?.() }
+      _precacheNextFolders(item)
     } catch (e) {
       if (!ctrl.signal.aborted) images.value = []
     } finally {
@@ -231,6 +357,7 @@ export function useSpecimenPhotos() {
 
   function invalidateFolderCache(folderHandle) {
     invalidateFolder(folderHandle)
+    _clearPrecache()
   }
 
   async function refreshSelectedFolderImages() {
@@ -239,8 +366,16 @@ export function useSpecimenPhotos() {
   }
 
   async function refreshTagCounts() {
-    const all = [...(matchedFolders.value || []), ...(unmatchedFolders.value || [])].filter(f => f.hasImages)
-    if (all.length) await computeAllTagCounts(all)
+    // Skip if a load is already in flight, or data is fresh (< 30 s old)
+    if (_tagCountsLoading) return
+    if (_tagCountsTimestamp > 0 && Date.now() - _tagCountsTimestamp < 30_000) return
+    _tagCountsLoading = true
+    try {
+      const all = [...(matchedFolders.value || []), ...(unmatchedFolders.value || [])].filter(f => f.hasImages)
+      if (all.length) await computeAllTagCounts(all)
+    } finally {
+      _tagCountsLoading = false
+    }
   }
 
   // ── public API ───────────────────────────────────────────────────────

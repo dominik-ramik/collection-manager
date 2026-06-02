@@ -108,8 +108,13 @@ const displayedTaxa = computed(() => {
 })
 
 function handleGlobalKeydown(event) {
-  if (event.key !== 'Tab') return
-  
+  // Ignore keys when focus is in an input/textarea/select
+  const tag = document.activeElement?.tagName
+  if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return
+
+  const isNavigate = event.key === 'Tab' || event.key === ' '
+  if (!isNavigate) return
+
   event.preventDefault()
   
   // Use displayedTaxa instead of currentTaxaList to respect the filter

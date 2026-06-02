@@ -234,7 +234,8 @@ export function countTaggedFilesMulti(files, tagLetters) {
  * Check if file has both specified tags
  */
 export function hasBothTags(filename, tag1, tag2) {
-  return hasTag(filename, tag1) && hasTag(filename, tag2)
+  const { tag } = parseFilename(filename)   // single cache lookup
+  return tag.includes(tag1) && tag.includes(tag2)
 }
 
 /**

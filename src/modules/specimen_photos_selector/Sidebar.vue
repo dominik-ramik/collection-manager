@@ -23,41 +23,47 @@
         </v-btn-toggle>
       </div>
     </div>
-    <div style="flex:1; min-height:0; overflow-y:auto; display:flex; flex-direction:column;">
+    <div style="flex:1; min-height:0; display:flex; flex-direction:column; overflow:hidden;">
       <!-- Spinner shown while tag counts are being refreshed -->
-      <div v-if="loadingTags" class="pa-2 d-flex justify-center" style="border-bottom:1px solid #eee;">
+      <div v-if="loadingTags" class="pa-2 d-flex justify-center" style="border-bottom:1px solid #eee; flex-shrink:0;">
         <span style="font-size: 70%;" class="mr-1">Loading selected photos counts</span> <v-progress-circular indeterminate size="20" color="primary" />
       </div>
 
-      <v-list nav style="flex:1;">
-        <v-list-item
-          v-for="item in displayedFolders"
-          :key="folderKeyOf(item)"
-          :value="folderKeyOf(item)"
-          :active="folderKeyOf(item) === selectedFolderKey"
-          :color="folderKeyOf(item) === selectedFolderKey ? 'primary' : undefined"
-          @click.stop="selectFolder(item)"
-          :data-folder-key="folderKeyOf(item)"
-          tabindex="0"
-          style="cursor:pointer; position:relative;"
-        >
-          <v-list-item-content>
+      <!-- Virtual scroll: only renders ~10-20 visible rows regardless of folder count -->
+      <v-virtual-scroll
+        ref="virtualScrollRef"
+        :items="displayedFolders"
+        :item-height="getItemHeight"
+        style="flex:1;"
+      >
+        <template #default="{ item }">
+          <v-list-item
+            :key="folderKeyOf(item)"
+            :value="folderKeyOf(item)"
+            :active="folderKeyOf(item) === selectedFolderKey"
+            :color="folderKeyOf(item) === selectedFolderKey ? 'primary' : undefined"
+            @click.stop="selectFolder(item)"
+            :data-folder-key="folderKeyOf(item)"
+            tabindex="0"
+            nav
+            style="cursor:pointer; position:relative;"
+          >
             <v-list-item-title>{{ item.folderName }}</v-list-item-title>
             <v-list-item-subtitle v-if="lowestPrimary(item) || familyOf(item)" style="font-size:0.70em; color:black; display:flex; flex-direction:column; gap:2px;">
               <div v-if="lowestPrimary(item)" style="line-height:1;">{{ lowestPrimary(item) }}</div>
               <div v-if="familyOf(item)" style="line-height:1; margin-left: 1.5em; font-size:1em; color:black;">{{ familyOf(item) }}</div>
             </v-list-item-subtitle>
-          </v-list-item-content>
-          <template #append>
-            <span v-if="getTagCount(item, 's') > 0"
-              class="tag-count-badge"
-              style="background:#8e24aa; color:#fff; border-radius:8px; font-size:0.85em; padding:2px 8px; margin-left:8px; position:absolute; right:12px; top:50%; transform:translateY(-50%);"
-            >
-              {{ getTagCount(item, 's') }}
-            </span>
-          </template>
-        </v-list-item>
-      </v-list>
+            <template #append>
+              <span v-if="getTagCount(item, 's') > 0"
+                class="tag-count-badge"
+                style="background:#8e24aa; color:#fff; border-radius:8px; font-size:0.85em; padding:2px 8px; margin-left:8px; position:absolute; right:12px; top:50%; transform:translateY(-50%);"
+              >
+                {{ getTagCount(item, 's') }}
+              </span>
+            </template>
+          </v-list-item>
+        </template>
+      </v-virtual-scroll>
       <div v-if="displayedFolders.length === 0" style="padding:1em; color:#888; text-align:center;">
         No folders found for selected type.
       </div>
@@ -67,7 +73,7 @@
   </div>
 </template>
 <script setup>
-import { computed, onActivated, onMounted, onBeforeUnmount, watch, ref } from 'vue'
+import { computed, onActivated, onDeactivated, onMounted, onBeforeUnmount, watch, ref, nextTick } from 'vue'
 import { specimenPhotosStore } from './specimenPhotosStore'
 import { useAppStore } from '@/stores/app'
 
@@ -88,7 +94,23 @@ const typeOptions = [
 ]
 
 const onlySpeciesLevel = ref(false)
-const loadingTags = ref(false) // NEW: indicates tag-count refresh in progress
+const loadingTags = ref(false)
+const virtualScrollRef = ref(null)
+
+// Per-item height for v-virtual-scroll.
+// Matched folders that have a taxonomy subtitle occupy ~72px; single-line items ~48px.
+function getItemHeight(item) {
+  if (selectedType.value !== 'matched') return 48
+  return (lowestPrimary(item) || familyOf(item)) ? 72 : 48
+}
+
+// Scroll the virtual list to keep the selected folder visible
+watch(selectedFolderKey, async (key) => {
+  if (!key || !virtualScrollRef.value) return
+  await nextTick()
+  const idx = displayedFolders.value.findIndex(f => folderKeyOf(f) === key)
+  if (idx !== -1) virtualScrollRef.value.scrollToIndex?.(idx)
+})
 
 const safeSortedFolders = computed(() => Array.isArray(sortedFolders) ? sortedFolders : (sortedFolders?.value ?? []))
 
@@ -217,8 +239,13 @@ function familyOf(folder) {
 }
 
 function handleGlobalKeydown(event) {
-  if (event.key !== 'Tab') return
-  
+  // Ignore keys when focus is in an input/textarea/select
+  const tag = document.activeElement?.tagName
+  if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return
+
+  const isNavigate = event.key === 'Tab' || event.key === ' '
+  if (!isNavigate) return
+
   event.preventDefault()
   
   const currentIdx = selectedFolderKey.value
@@ -270,11 +297,13 @@ function handleGlobalKeydown(event) {
   
   if (found && displayedFolders.value[nextIdx]) {
     selectFolder(displayedFolders.value[nextIdx])
-    // Scroll into view
-    const key = folderKeyOf(displayedFolders.value[nextIdx])
-    const listItem = document.querySelector(`[data-folder-key="${CSS.escape(key)}"]`)
-    if (listItem) {
-      listItem.scrollIntoView({ block: 'nearest', behavior: 'smooth' })
+    // With virtual scroll, scrollIntoView on a DOM element won't work for off-screen items
+    if (virtualScrollRef.value) {
+      virtualScrollRef.value.scrollToIndex?.(nextIdx)
+    } else {
+      const key = folderKeyOf(displayedFolders.value[nextIdx])
+      const listItem = document.querySelector(`[data-folder-key="${CSS.escape(key)}"]`)
+      if (listItem) listItem.scrollIntoView({ block: 'nearest', behavior: 'smooth' })
     }
   }
 }
@@ -283,21 +312,27 @@ function handleGlobalKeydown(event) {
 async function loadTagCounts() {
   loadingTags.value = true
   try {
-    // refreshTagCounts may return a Promise; await if so
     await Promise.resolve(refreshTagCounts())
+  } catch (e) {
+    // Stale folder handles (NotFoundError) are expected when the filesystem changes
+    if (e?.name !== 'NotFoundError') console.error('loadTagCounts error:', e)
   } finally {
     loadingTags.value = false
   }
 }
 
 onMounted(() => {
-  // start loading tags and show spinner during the operation
   loadTagCounts()
   document.addEventListener('keydown', handleGlobalKeydown)
 })
 onActivated(() => {
   loadTagCounts()
+  // Guard against double-registration when keep-alive fires both onMounted and onActivated
+  document.removeEventListener('keydown', handleGlobalKeydown)
   document.addEventListener('keydown', handleGlobalKeydown)
+})
+onDeactivated(() => {
+  document.removeEventListener('keydown', handleGlobalKeydown)
 })
 onBeforeUnmount(() => {
   document.removeEventListener('keydown', handleGlobalKeydown)

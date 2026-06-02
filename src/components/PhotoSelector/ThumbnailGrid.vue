@@ -68,29 +68,25 @@
       <v-progress-circular indeterminate color="primary" />
     </div>
     <div v-else class="d-flex flex-wrap" style="gap: 1em; position:relative;">
-      <v-hover
+      <div
         v-for="(img, idx) in displayedImages"
         :key="img.name"
-        v-slot="{ isHovering, props }"
+        class="thumbnail-box elevation-1"
+        :style="{
+          width: '24em',
+          height: '16em',
+          borderRadius: '8px',
+          overflow: 'hidden',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          background: '#fafafa',
+          position: 'relative'
+        }"
+        @mousemove="e => onThumbnailMouseMove(e, idx, img)"
+        @mouseleave="onImgMouseLeave"
+        @click="onThumbnailClick(img)"
       >
-        <div
-          v-bind="props"
-          :class="['thumbnail-box', isHovering ? 'elevation-6 thumb-hover' : 'elevation-1']"
-          :style="{
-            width: '24em',
-            height: '16em',
-            borderRadius: '8px',
-            overflow: 'hidden',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            background: '#fafafa',
-            position: 'relative'
-          }"
-          @mousemove="e => onThumbnailMouseMove(e, idx, img)"
-          @mouseleave="onImgMouseLeave"
-          @click="onThumbnailClick(img)"
-        >
          <!-- Unified overlay icon button -->
          <div
            style="position:absolute;top:0.5em;left:0.5em;z-index:2;"
@@ -103,8 +99,8 @@
              style="width:auto;min-width:6em;min-height:3em;display:flex;align-items:center;justify-content:center;"
              :disabled="false"
              :title="getButtonTitle(img)"
-             @mouseenter="img._hover = true"
-             @mouseleave="img._hover = false"
+             @mouseenter="hoveredButtonImg = img"
+             @mouseleave="hoveredButtonImg = null"
              @click.stop="handleButtonClick(img)"
            >
              <template #prepend>
@@ -140,10 +136,9 @@
            height="100%"
            :cover="false"
            style="object-fit:contain;"
-           ref="imgRefs"
+           :ref="(el) => setImgRef(el, img.name)"
          />
-        </div>
-      </v-hover>
+      </div>
       <!-- Spacer after last thumbnail -->
       <div style="width:100%; height:20em;"></div>
     </div>
@@ -212,7 +207,15 @@ const props = defineProps({
 
 const emit = defineEmits(['thumbnailClick', 'editIconClick', 'showRevertDialog'])
 
-const imgRefs = ref([])
+// Map from image name -> v-img component instance for O(1) magnifier lookup
+const imgRefMap = new Map()
+function setImgRef(el, name) {
+  if (el) imgRefMap.set(name, el)
+  else imgRefMap.delete(name)
+}
+
+// Tracks which button (if any) is currently hovered — avoids mutating shallowRef items
+const hoveredButtonImg = ref(null)
 
 const magnifier = reactive({
   visible: false,
@@ -235,34 +238,43 @@ const MAG_RADIUS = MAG_SIZE / 2
 const MAG_PADDING = 16
 const SCALE = 0.5
 
+// RAF throttle state for mousemove
+let _rafPending = false
+let _pendingMove = null
+
 function onThumbnailMouseMove(e, idx, img) {
   lastHoveredIdx = idx
-  updateMagnifier(e, idx, img)
+  // Capture coordinates immediately (event object may be reused)
+  _pendingMove = { clientX: e.clientX, clientY: e.clientY, idx, img }
+  if (_rafPending) return
+  _rafPending = true
+  requestAnimationFrame(() => {
+    _rafPending = false
+    if (_pendingMove) updateMagnifier(_pendingMove.clientX, _pendingMove.clientY, _pendingMove.img)
+  })
 }
 
-function updateMagnifier(e, idx, img) {
-  let vImgWrapper = imgRefs.value[idx]?.$el
-  if (!vImgWrapper || !isImgRefMatching(vImgWrapper, img)) {
-    vImgWrapper = findImgRefByName(img.name)
-  }
+function updateMagnifier(clientX, clientY, img) {
+  const vImgComponent = imgRefMap.get(img.name)
+  const vImgWrapper = vImgComponent?.$el
   if (!vImgWrapper) return
-  
+
   const realImg = vImgWrapper.querySelector('img')
   if (!realImg || !realImg.complete) return
-  
+
   const rect = realImg.getBoundingClientRect()
-  const mouseX = e.clientX - rect.left
-  const mouseY = e.clientY - rect.top
+  const mouseX = clientX - rect.left
+  const mouseY = clientY - rect.top
   const naturalWidth = realImg.naturalWidth
   const naturalHeight = realImg.naturalHeight
   const displayWidth = rect.width
   const displayHeight = rect.height
   const scaleX = naturalWidth / displayWidth
   const scaleY = naturalHeight / displayHeight
-  
+
   const offsetX = Math.max(0, Math.min(naturalWidth - MAG_RADIUS / SCALE, mouseX * scaleX - MAG_RADIUS / SCALE))
   const offsetY = Math.max(0, Math.min(naturalHeight - MAG_RADIUS / SCALE, mouseY * scaleY - MAG_RADIUS / SCALE))
-  
+
   magnifier.visible = true
   magnifier.img = img
   magnifier.imgNaturalWidth = naturalWidth
@@ -275,32 +287,15 @@ function updateMagnifier(e, idx, img) {
   magnifier.offsetYScaled = offsetY * SCALE
 }
 
-function isImgRefMatching(vImgWrapper, img) {
-  const realImg = vImgWrapper.querySelector('img')
-  if (!realImg) return false
-  return realImg.src === img.url && realImg.alt === img.name
-}
-
-function findImgRefByName(name) {
-  for (const refObj of imgRefs.value) {
-    const vImgWrapper = refObj?.$el
-    if (!vImgWrapper) continue
-    const realImg = vImgWrapper.querySelector('img')
-    if (realImg && realImg.alt === name) {
-      return vImgWrapper
-    }
-  }
-  return null
-}
-
 function onImgMouseLeave() {
   magnifier.visible = false
   magnifier.img = null
   lastHoveredIdx = null
+  _pendingMove = null
 }
 
-watch(() => props.images, (newImages, oldImages) => {
-  if (magnifier.visible && lastHoveredIdx !== null && newImages[lastHoveredIdx]) {
+watch(() => props.images, () => {
+  if (magnifier.visible) {
     magnifier.visible = false
     magnifier.img = null
   }
@@ -327,7 +322,7 @@ function getButtonIcon(img) {
     return 'mdi-check-circle'
   }
   return isEditFile(img.name)
-    ? (img._hover ? 'mdi-trash-can-outline' : 'mdi-image-edit')
+    ? (hoveredButtonImg.value === img ? 'mdi-trash-can-outline' : 'mdi-image-edit')
     : 'mdi-image-edit-outline'
 }
 
@@ -335,25 +330,27 @@ function getButtonText(img) {
   if (!props.allowEdit) {
     return 'Selected'
   }
+  const hovered = hoveredButtonImg.value === img
   // Check for dual tags (s and t) - show "(taxon)" augmentation
   const isDualTagged = hasBothTags(img.name, 's', 't')
-  
+
   if (isEditFile(img.name)) {
-    return img._hover ? 'Revert to original' : (isDualTagged ? 'Selected (edited, taxon)' : 'Selected (edited)')
+    return hovered ? 'Revert to original' : (isDualTagged ? 'Selected (edited, taxon)' : 'Selected (edited)')
   }
-  return img._hover ? 'Click to make a copy for editing' : (isDualTagged ? 'Selected (taxon)' : 'Selected')
+  return hovered ? 'Click to make a copy for editing' : (isDualTagged ? 'Selected (taxon)' : 'Selected')
 }
 
 function getButtonTitle(img) {
   if (!props.allowEdit) {
     return 'Selected for taxon'
   }
+  const hovered = hoveredButtonImg.value === img
   const isDualTagged = hasBothTags(img.name, 's', 't')
-  
+
   if (isEditFile(img.name)) {
-    return img._hover ? 'Revert to original' : (isDualTagged ? 'Selected (edited, taxon)' : 'Selected (edited)')
+    return hovered ? 'Revert to original' : (isDualTagged ? 'Selected (edited, taxon)' : 'Selected (edited)')
   }
-  return img._hover ? 'Click to make a copy for editing' : (isDualTagged ? 'Selected (taxon)' : 'Selected')
+  return hovered ? 'Click to make a copy for editing' : (isDualTagged ? 'Selected (taxon)' : 'Selected')
 }
 
 // Internal snackbar used when toggleHandler is provided
@@ -456,9 +453,10 @@ const emptyMessage = computed(() => {
   will-change: transform, box-shadow;
 }
 
-/* Lift and tint border using theme primary on hover */
-.thumbnail-box.thumb-hover {
+/* Lift and tint border using theme primary on hover — pure CSS, no v-hover component needed */
+.thumbnail-box:hover {
   transform: translateY(-2px);
   border-color: rgba(var(--v-theme-primary), 0.35);
+  box-shadow: 0px 3px 5px -1px rgba(0,0,0,.2), 0px 6px 10px 0px rgba(0,0,0,.14), 0px 1px 18px 0px rgba(0,0,0,.12) !important;
 }
 </style>

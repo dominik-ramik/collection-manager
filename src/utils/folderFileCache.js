@@ -31,7 +31,7 @@ export async function getCachedFiles(folderHandle) {
 
   const files = []
   for await (const [name, handle] of folderHandle.entries()) {
-    if (handle.kind === 'file' && IMAGE_RE.test(name)) {
+    if (handle.kind === 'file' && !name.startsWith('._') && IMAGE_RE.test(name)) {
       files.push({ name, handle })
     }
   }

@@ -10,20 +10,25 @@ import { getCachedFiles, invalidateFolder, updateCachedFileName } from '@/utils/
  *
  * Key improvements over the previous version
  * ───────────────────────────────────────────
- * 1.  **Pre-indexed folder→taxon mapping** – We build an inverted index
+ * 1.  **Eager ArrayBuffer blobs** – File bytes are read into RAM before
+ *     createObjectURL so the browser paints without a FSAA round-trip.
+ *
+ * 2.  **Look-ahead precache** – After selecting a taxon the next
+ *     PRECACHE_AHEAD taxa are loaded in the background so sequential
+ *     navigation is nearly instant.  Memory is bounded to
+ *     (1 active + PRECACHE_AHEAD) taxa; stale entries are revoked.
+ *
+ * 3.  **Pre-indexed folder→taxon mapping** – We build an inverted index
  *     (folder handle → taxon keys) once and reuse it for tag-count
  *     aggregation so each unique folder is scanned at most once.
  *
- * 2.  **Incremental tag counts** – After a tag toggle we adjust the
+ * 4.  **Incremental tag counts** – After a tag toggle we adjust the
  *     affected taxon's count by ±1.  Full rescans only on data change.
  *
- * 3.  **Lazy blob URLs** – Created only for the currently selected
- *     taxon's images, revoked on switch.
- *
- * 4.  **Single-pass display-file selection** – Same O(n) algorithm as
+ * 5.  **Single-pass display-file selection** – Same O(n) algorithm as
  *     the specimen store (edit preference).
  *
- * 5.  **Abort controller** – Rapid taxon switching cancels in-flight
+ * 6.  **Abort controller** – Rapid taxon switching cancels in-flight
  *     image loads.
  */
 export function useTaxaPhotos() {
@@ -45,12 +50,34 @@ export function useTaxaPhotos() {
   let activeObjectUrls = []
   let _selectAbort = null
 
+  // ── image precache ────────────────────────────────────────────────────
+  const _precache = new Map()       // taxonKey → { images, urls }  (resolved)
+  const _precacheAborts = new Map() // taxonKey → AbortController   (in-flight)
+  const PRECACHE_AHEAD = 3
+
   // ── helpers ──────────────────────────────────────────────────────────
   function revokeActiveUrls() {
     for (const url of activeObjectUrls) {
       try { URL.revokeObjectURL(url) } catch { /* ignore */ }
     }
     activeObjectUrls = []
+  }
+
+  function _revokePrecacheEntry(key) {
+    const entry = _precache.get(key)
+    if (entry) {
+      for (const u of entry.urls) try { URL.revokeObjectURL(u) } catch {}
+      _precache.delete(key)
+    }
+    const ctrl = _precacheAborts.get(key)
+    if (ctrl) { ctrl.abort(); _precacheAborts.delete(key) }
+  }
+
+  function _clearPrecache() {
+    for (const key of [..._precache.keys()]) _revokePrecacheEntry(key)
+    for (const [key, ctrl] of [..._precacheAborts.entries()]) {
+      ctrl.abort(); _precacheAborts.delete(key)
+    }
   }
 
   function showSnackbar(message, color = 'success', timeout = 3500) {
@@ -96,6 +123,7 @@ export function useTaxaPhotos() {
     selectedTaxon.value = null
     selectedTaxonKey.value = null
     revokeActiveUrls()
+    _clearPrecache()
     aggregatedImages.value = []
   }
 
@@ -210,6 +238,88 @@ export function useTaxaPhotos() {
     return display
   }
 
+  // ── image precache helpers ────────────────────────────────────────────────
+
+  // Load all s-tagged images for a taxon (aggregated); returns { images, urls } or null
+  async function _loadImagesForTaxon(taxon, signal) {
+    try {
+      const allImages = []
+      const allUrls = []
+      for (const folder of (taxon.folders || [])) {
+        if (signal?.aborted) {
+          for (const u of allUrls) try { URL.revokeObjectURL(u) } catch {}
+          return null
+        }
+        const files = await getCachedFiles(folder.handle)
+        if (signal?.aborted) {
+          for (const u of allUrls) try { URL.revokeObjectURL(u) } catch {}
+          return null
+        }
+        const sTagged = files.filter(f => hasTag(f.name, 's'))
+        const displayFiles = buildDisplayFiles(sTagged)
+        const BATCH = 24
+        for (let i = 0; i < displayFiles.length; i += BATCH) {
+          if (signal?.aborted) {
+            for (const u of allUrls) try { URL.revokeObjectURL(u) } catch {}
+            return null
+          }
+          const batch = displayFiles.slice(i, i + BATCH)
+          const loaded = await Promise.all(batch.map(async (file) => {
+            const imgFile = await file.handle.getFile()
+            const buf = await imgFile.arrayBuffer()
+            const blob = new Blob([buf], { type: imgFile.type || 'image/jpeg' })
+            const url = URL.createObjectURL(blob)
+            return {
+              name: file.name,
+              url,
+              handle: file.handle,
+              specimenMeta: {
+                initials: folder?.specimenMeta?.initials || '',
+                number: folder?.specimenMeta?.number || '',
+                accletter: folder?.specimenMeta?.accletter || '',
+              },
+            }
+          }))
+          if (signal?.aborted) {
+            for (const img of loaded) try { URL.revokeObjectURL(img.url) } catch {}
+            for (const u of allUrls) try { URL.revokeObjectURL(u) } catch {}
+            return null
+          }
+          for (const img of loaded) { allUrls.push(img.url); allImages.push(img) }
+        }
+      }
+      return { images: allImages.sort((a, b) => a.name.localeCompare(b.name)), urls: allUrls }
+    } catch {
+      return null
+    }
+  }
+
+  function _precacheNextTaxa(currentTaxon) {
+    const list = currentTaxaList.value
+    const idx = list.findIndex(t => taxonKeyOf(t) === taxonKeyOf(currentTaxon))
+    const wantedKeys = new Set()
+    for (let i = idx + 1; i <= idx + PRECACHE_AHEAD && i < list.length; i++) {
+      wantedKeys.add(taxonKeyOf(list[i]))
+    }
+    // Evict entries outside the look-ahead window
+    for (const key of [..._precache.keys(), ..._precacheAborts.keys()]) {
+      if (!wantedKeys.has(key)) _revokePrecacheEntry(key)
+    }
+    // Start background loads for not-yet-cached entries
+    for (let i = idx + 1; i <= idx + PRECACHE_AHEAD && i < list.length; i++) {
+      const taxon = list[i]
+      const key = taxonKeyOf(taxon)
+      if (_precache.has(key) || _precacheAborts.has(key)) continue
+      if (selectedType.value === 'without_photos') continue
+      const ctrl = new AbortController()
+      _precacheAborts.set(key, ctrl)
+      _loadImagesForTaxon(taxon, ctrl.signal).then(result => {
+        _precacheAborts.delete(key)
+        if (result) _precache.set(key, result)
+      })
+    }
+  }
+
   // ── taxon selection & image loading ──────────────────────────────────
 
   async function selectTaxon(taxon) {
@@ -217,21 +327,38 @@ export function useTaxaPhotos() {
     const ctrl = new AbortController()
     _selectAbort = ctrl
 
+    const key = taxonKeyOf(taxon)
+    // Abort any in-flight precache for this key (we'll load it ourselves)
+    const precacheCtrl = _precacheAborts.get(key)
+    if (precacheCtrl) { precacheCtrl.abort(); _precacheAborts.delete(key) }
+
     selectedTaxon.value = taxon
-    selectedTaxonKey.value = taxonKeyOf(taxon)
+    selectedTaxonKey.value = key
     revokeActiveUrls()
     aggregatedImages.value = []
-    loadingImages.value = true
 
+    if (selectedType.value === 'without_photos') {
+      loadingImages.value = false
+      return
+    }
+
+    // ── Precache hit: instant display ──────────────────────────────────
+    const cached = _precache.get(key)
+    if (cached) {
+      _precache.delete(key)
+      activeObjectUrls = cached.urls
+      aggregatedImages.value = cached.images
+      loadingImages.value = false
+      _precacheNextTaxa(taxon)
+      return
+    }
+
+    // ── Cache miss: load with progress ─────────────────────────────────
+    loadingImages.value = true
     await new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r)))
     if (ctrl.signal.aborted) return
 
     try {
-      if (selectedType.value === 'without_photos') {
-        loadingImages.value = false
-        return
-      }
-
       const allImages = []
       for (const folder of (taxon.folders || [])) {
         if (ctrl.signal.aborted) return
@@ -250,7 +377,9 @@ export function useTaxaPhotos() {
           const batch = displayFiles.slice(i, i + BATCH)
           const loaded = await Promise.all(batch.map(async (file) => {
             const imgFile = await file.handle.getFile()
-            const url = URL.createObjectURL(imgFile)
+            const buf = await imgFile.arrayBuffer()
+            const blob = new Blob([buf], { type: imgFile.type || 'image/jpeg' })
+            const url = URL.createObjectURL(blob)
             activeObjectUrls.push(url)
             return {
               name: file.name,
@@ -269,6 +398,7 @@ export function useTaxaPhotos() {
 
       if (ctrl.signal.aborted) return
       aggregatedImages.value = allImages.sort((a, b) => a.name.localeCompare(b.name))
+      _precacheNextTaxa(taxon)
     } catch (e) {
       if (!ctrl.signal.aborted) {
         aggregatedImages.value = []
@@ -292,6 +422,7 @@ export function useTaxaPhotos() {
 
   function invalidateFolderCache(folderHandle) {
     invalidateFolder(folderHandle)
+    _clearPrecache()
   }
 
   // ── public API ───────────────────────────────────────────────────────

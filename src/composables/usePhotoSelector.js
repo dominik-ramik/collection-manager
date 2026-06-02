@@ -1,5 +1,5 @@
 import { ref, shallowRef, nextTick } from 'vue'
-import { parseFilename, countTaggedFiles } from '@/utils/tagging'
+import { parseFilename, countTaggedFiles, countTaggedFilesMulti } from '@/utils/tagging'
 
 /**
  * Shared composable for photo selector modules
@@ -41,96 +41,103 @@ export function usePhotoSelector(config) {
     snackbar.value.show = true
   }
 
-  /**
-   * Compute tag counts for all items
-   */
+  // Persists across selectItem calls; keyed by itemKeyFn(item)
+  const tagCountCache = new Map()
+
   async function computeAllTagCounts(itemsArr) {
-    const newCounts = {}
-    for (const item of itemsArr) {
-      const files = await getFilesForItem(item)
-      const key = itemKeyFn(item)
-      newCounts[key] = {
-        [tagLetter]: countTaggedFiles(files, tagLetter)
-      }
-    }
-    tagCounts.value = newCounts
+    const entries = await Promise.all(
+      itemsArr.map(async (item) => {
+        const key = itemKeyFn(item)
+        if (tagCountCache.has(key)) {
+          return [key, tagCountCache.get(key)]
+        }
+        const files = await getFilesForItem(item)
+        // countTaggedFilesMulti does a single O(N) pass for all letters
+        const counts = countTaggedFilesMulti(files, [tagLetter])
+        tagCountCache.set(key, counts)
+        return [key, counts]
+      })
+    )
+    tagCounts.value = Object.fromEntries(entries)
   }
 
-  /**
-   * Get tag count for specific item
-   */
   function getTagCount(item, letter) {
     const key = itemKeyFn(item)
-    return tagCounts.value[key]?.[letter] || 0
+    return tagCounts.value[key]?.[letter] ?? 0
   }
+
+  function invalidateTagCount(item) {
+    tagCountCache.delete(itemKeyFn(item))
+  }
+
+  let currentLoadId = 0
 
   /**
    * Select an item and load its images
    */
   async function selectItem(item) {
+    const loadId = ++currentLoadId
+
     selectedItem.value = item
     selectedItemKey.value = itemKeyFn(item)
     images.value = []
     loadingImages.value = true
-    
+
     try {
       let loadedImages = await loadImagesFn(item)
-      
-      // Apply filter if provided
+      if (loadId !== currentLoadId) return   // superseded by a newer click
+
       if (filterImagesFn) {
         loadedImages = filterImagesFn(loadedImages)
       }
-      
-      // Prefer edit files over originals
+
       const displayFiles = preferEditFiles(loadedImages)
-      
       images.value = displayFiles.sort((a, b) => a.name.localeCompare(b.name))
-      
+
       await nextTick()
-      
-      // Scroll selected item into view
+      if (loadId !== currentLoadId) return   // check again after nextTick
+
       if (document.activeElement) document.activeElement.blur()
-      const listItem = document.querySelector(`[data-item-key="${CSS.escape(itemKeyFn(item))}"]`)
+      const listItem = document.querySelector(
+        `[data-item-key="${CSS.escape(itemKeyFn(item))}"]`
+      )
       if (listItem) {
         listItem.scrollIntoView({ block: 'nearest', behavior: 'smooth' })
         listItem.focus?.()
       }
     } catch (e) {
+      if (loadId !== currentLoadId) return
       images.value = []
       showSnackbar('Failed to load images: ' + e.message, 'error')
     } finally {
-      loadingImages.value = false
+      if (loadId === currentLoadId) {
+        loadingImages.value = false
+      }
     }
   }
 
-  /**
-   * Prefer edit files over originals when both exist
-   */
   function preferEditFiles(files) {
-    const sorted = [...files].sort((a, b) => a.name.localeCompare(b.name))
-    const editBases = new Set()
-    const parsedMap = new Map()
+    // Single pass: group by base+ext, prefer edit variant
+    const byBase = new Map()   // baseKey → { edit: file|null, original: file|null }
 
-    for (const file of sorted) {
+    for (const file of files) {
       const parsed = parseFilename(file.name)
-      parsedMap.set(file, parsed)
-      if (parsed.edit) editBases.add(parsed.base + parsed.ext)
+      const key = parsed.base + parsed.ext
+      const slot = byBase.get(key) ?? { edit: null, original: null }
+      if (parsed.edit) {
+        slot.edit = file
+      } else {
+        slot.original = file
+      }
+      byBase.set(key, slot)
     }
 
-    const displayFiles = []
-    const seenBases = new Set()
-    for (const file of sorted) {
-      const parsed = parsedMap.get(file)
-      const baseKey = parsed.base + parsed.ext
-      if (parsed.edit) {
-        displayFiles.push(file)
-        seenBases.add(baseKey)
-      } else if (!seenBases.has(baseKey) && !editBases.has(baseKey)) {
-        displayFiles.push(file)
-        seenBases.add(baseKey)
-      }
+    const result = []
+    for (const { edit, original } of byBase.values()) {
+      result.push(edit ?? original)
     }
-    return displayFiles
+    // Caller does the final sort; return unsorted to avoid double-sort
+    return result
   }
 
   /**
@@ -205,6 +212,7 @@ export function usePhotoSelector(config) {
     showSnackbar,
     computeAllTagCounts,
     getTagCount,
+    invalidateTagCount,
     selectItem,
     navigateToNextUntagged,
     preferEditFiles,
