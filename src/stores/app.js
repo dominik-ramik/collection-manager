@@ -20,6 +20,7 @@ export const useAppStore = defineStore('app', {
     fieldNotesData: null,
     symbiotaCollectionData: null,
     checklistData: null, // Add checklist data
+    gazeteerData: null,
     specimensPhotosFolderResult: null,
     modulesObj: {}, // Add for storing loaded module objects
     // New: force showing data sources per module (moduleName => true)

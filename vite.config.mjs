@@ -74,6 +74,7 @@ export default defineConfig({
       '.vue',
     ],
   },
+  base: '/collection-manager/',
   server: {
     port: 3000,
   },

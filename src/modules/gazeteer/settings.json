@@ -1,0 +1,5 @@
+{
+  "title": "Gazeteer",
+  "icon": "mdi-map-search",
+  "dataSources": ["gazeteer"]
+}

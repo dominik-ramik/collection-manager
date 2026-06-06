@@ -85,12 +85,15 @@ import SpecimensPhotosFolderDS from '@/data_sources/specimens_photos_folder/Inde
 import specimensPhotosFolderSettingsMod from '@/data_sources/specimens_photos_folder/settings.json'
 import SymbiotaDS from '@/data_sources/symbiota/Index.vue'
 import symbiotaSettingsMod from '@/data_sources/symbiota/settings.json'
+import GazeteerDS from '@/data_sources/gazeteer/Index.vue'
+import gazeteerDsSettingsMod from '@/data_sources/gazeteer/settings.json'
 
 // Module entry points
 import SpecimenPhotosModule from '@/modules/specimen_photos_selector/index.js'
 import TaxaPhotosModule from '@/modules/taxa_photos_selector/index.js'
 import SymbiotaManagerModule from '@/modules/symbiota_manager/index.js'
 import HealthcheckModule from '@/modules/collection_healthcheck/index.js'
+import GazeteerModule from '@/modules/gazeteer/index.js'
 
 const dsRegistry = {
   field_notes: {
@@ -109,12 +112,17 @@ const dsRegistry = {
     component: markRaw(SymbiotaDS),
     settings: symbiotaSettingsMod?.default ?? symbiotaSettingsMod,
   },
+  gazeteer: {
+    component: markRaw(GazeteerDS),
+    settings: gazeteerDsSettingsMod?.default ?? gazeteerDsSettingsMod,
+  },
 }
 const moduleRegistry = {
   specimen_photos_selector: SpecimenPhotosModule,
   taxa_photos_selector: TaxaPhotosModule,
   symbiota_manager: SymbiotaManagerModule,
   collection_healthcheck: HealthcheckModule,
+  gazeteer: GazeteerModule,
 }
 
 const route = useRoute()
